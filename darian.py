@@ -5,6 +5,8 @@ import tempfile
 import os
 import sqlite3
 import re
+import queue
+import time
 from scipy.io.wavfile import write
 from faster_whisper import WhisperModel
 from gtts import gTTS
@@ -19,7 +21,7 @@ MAX_TURNS = 6  # 3 perguntas + 3 respostas
 DB_FILE = "memory.db"
 
 SYSTEM_PROMPT = (
-    "És a AURA, um assistente direto, objetivo e eficiente.\n"
+    "És o Darian, um assistente direto, objetivo e eficiente.\n"
     "Responde sempre em português de Portugal.\n\n"
     "Regras obrigatórias:\n"
     "- Responde de forma curta e direta.\n"
@@ -72,21 +74,79 @@ def speak(text):
 # ================ STT ====================
 whisper = WhisperModel("small", device="cpu", compute_type="int8")
 
-def listen():
+def listen(voice_threshold):
     print("🎤 Fala agora...")
-    audio = sd.rec(int(RECORD_SECONDS * SAMPLE_RATE),
-                   samplerate=SAMPLE_RATE,
-                   channels=1,
-                   dtype="float32")
-    sd.wait()
 
-    audio = audio.squeeze()
+    q = queue.Queue()
+
+    def callback(indata, frames, time_info, status):
+        if status:
+            print(status)
+        q.put(indata.copy())
+
+    with sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=1,
+        dtype="float32",
+        callback=callback
+    ):
+        audio_chunks = []
+        silence_start = None
+        start_time = time.time()
+        speech_started = False
+
+        while True:
+            try:
+                chunk = q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            audio_chunks.append(chunk)
+
+            volume = np.linalg.norm(chunk) * 10
+
+            # ainda ninguém começou a falar
+            if not speech_started:
+                if volume > voice_threshold:
+                    speech_started = True
+                    silence_start = None
+                else:
+                    continue  # ignora ruído antes da fala
+            else:
+                # já houve fala, agora esperamos silêncio
+                if volume > voice_threshold:
+                    silence_start = None
+                else:
+                    if silence_start is None:
+                        silence_start = time.time()
+                    elif time.time() - silence_start > 0.4:
+                        break
+
+            if time.time() - start_time > 15:
+                break
+
+    audio = np.concatenate(audio_chunks).squeeze()
+
+    if audio.size == 0:
+        print("❌ Não percebi.")
+        return None
+
+    # normalizar
+    audio = audio / np.max(np.abs(audio))
+
+    audio_int16 = np.int16(audio * 32767)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
         wav_path = f.name
-        write(wav_path, SAMPLE_RATE, audio)
+        write(wav_path, SAMPLE_RATE, audio_int16)
 
-    segments, _ = whisper.transcribe(wav_path, language="pt")
+    segments, _ = whisper.transcribe(
+        wav_path,
+        language="pt",
+        beam_size=5,
+        vad_filter=True
+    )
+
     os.remove(wav_path)
 
     text = "".join(seg.text for seg in segments).strip()
@@ -97,6 +157,30 @@ def listen():
 
     print(f"Tu: {text}")
     return text
+
+def calibrate_noise(duration=1.5):
+    print("🔇 A calibrar ruído ambiente... fica em silêncio")
+
+    samples = []
+    start = time.time()
+
+    with sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=1,
+        dtype="float32"
+    ) as stream:
+        while time.time() - start < duration:
+            chunk, _ = stream.read(1024)
+            volume = np.linalg.norm(chunk) * 10
+            samples.append(volume)
+
+    noise_level = np.mean(samples)
+    threshold = noise_level * 1.8  # margem de segurança
+
+    print(f"🔈 Ruído base: {noise_level:.4f}")
+    print(f"🎚️ Limiar de voz: {threshold:.4f}")
+
+    return threshold
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -159,6 +243,7 @@ def extract_user_facts(text):
 # ================ MAIN ===================
 def main():
     init_db()
+    voice_threshold = calibrate_noise()
 
     messages = [{"role": "system", "content": build_system_prompt()}]
 
@@ -166,7 +251,7 @@ def main():
     print("Diz 'sair' para terminar\n")
 
     while True:
-        user = listen()
+        user = listen(voice_threshold)
         if not user:
             continue
 

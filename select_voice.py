@@ -8,7 +8,7 @@ def test_voices():
     voices = engine.getProperty('voices')
     
     print("\n" + "="*70)
-    print("TESTE DE VOZES - AURA AGENT")
+    print("TESTE DE VOZES - DARIAN AGENT")
     print("="*70 + "\n")
     
     if len(voices) == 0:
@@ -35,7 +35,7 @@ def test_voices():
                 engine.setProperty('voice', voices[idx].id)
                 engine.setProperty('rate', 150)
                 
-                test_text = "Olá! Sou a AURA. Como posso ajudar?"
+                test_text = "Olá! Sou o Darian. Como posso ajudar?"
                 print(f"\n🔊 Testando: {voices[idx].name}")
                 print(f"Frase: {test_text}\n")
                 
