@@ -7,6 +7,7 @@ import sqlite3
 import re
 import queue
 import time
+import simpleaudio as sa
 from scipy.io.wavfile import write
 from faster_whisper import WhisperModel
 from gtts import gTTS
@@ -19,6 +20,7 @@ SAMPLE_RATE = 16000
 RECORD_SECONDS = 5
 MAX_TURNS = 6  # 3 perguntas + 3 respostas
 DB_FILE = "memory.db"
+STOP_TTS = False
 
 SYSTEM_PROMPT = (
     "És o Darian, um assistente direto, objetivo e eficiente.\n"
@@ -54,27 +56,26 @@ def call_llm(messages):
 
 # ================ TTS ====================
 def speak(text):
-    # Força pausas naturais
+    global STOP_TTS
+    STOP_TTS = False
+
     text = text.replace(",", ", ").replace(".", ". ")
-    
-    tts = gTTS(
-        text=text,
-        lang="pt",
-        tld="pt",
-        slow=False  # mantém natural mas com pausas
-    )
+
+    tts = gTTS(text=text, lang="pt", tld="pt", slow=False)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
         path = f.name
         tts.save(path)
 
-    playsound(path)
+    playsound(path)  # simples e estável
     os.remove(path)
 
 # ================ STT ====================
 whisper = WhisperModel("small", device="cpu", compute_type="int8")
 
 def listen(voice_threshold):
+    global STOP_TTS
+
     print("🎤 Fala agora...")
 
     q = queue.Queue()
@@ -88,52 +89,62 @@ def listen(voice_threshold):
         samplerate=SAMPLE_RATE,
         channels=1,
         dtype="float32",
+        blocksize=512,
         callback=callback
     ):
         audio_chunks = []
         silence_start = None
         start_time = time.time()
         speech_started = False
+        voice_start_time = None
 
         while True:
             try:
-                chunk = q.get(timeout=0.1)
+                chunk = q.get(timeout=0.05)
             except queue.Empty:
                 continue
 
-            audio_chunks.append(chunk)
-
             volume = np.linalg.norm(chunk) * 10
 
-            # ainda ninguém começou a falar
+            # 🔇 Antes da fala começar
             if not speech_started:
                 if volume > voice_threshold:
-                    speech_started = True
-                    silence_start = None
+                    if voice_start_time is None:
+                        voice_start_time = time.time()
+                    elif time.time() - voice_start_time > 0.2:  # 200 ms contínuos
+                        STOP_TTS = True          # 🔴 barge-in
+                        speech_started = True
+                        silence_start = None
+                        beep()                  # 🔔 feedback
+                        audio_chunks.append(chunk)
                 else:
-                    continue  # ignora ruído antes da fala
+                    voice_start_time = None
+                    continue
+
+            # 🔊 Depois da fala começar
             else:
-                # já houve fala, agora esperamos silêncio
+                audio_chunks.append(chunk)
+
                 if volume > voice_threshold:
                     silence_start = None
                 else:
                     if silence_start is None:
                         silence_start = time.time()
-                    elif time.time() - silence_start > 0.4:
+                    elif time.time() - silence_start > 0.25:
                         break
 
-            if time.time() - start_time > 15:
+            # ⛑️ limite de segurança
+            if speech_started and time.time() - start_time > 6:
                 break
 
-    audio = np.concatenate(audio_chunks).squeeze()
-
-    if audio.size == 0:
+    if not audio_chunks:
         print("❌ Não percebi.")
         return None
 
+    audio = np.concatenate(audio_chunks).squeeze()
+
     # normalizar
     audio = audio / np.max(np.abs(audio))
-
     audio_int16 = np.int16(audio * 32767)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
@@ -158,6 +169,15 @@ def listen(voice_threshold):
     print(f"Tu: {text}")
     return text
 
+def beep():
+    freq = 880      # Hz
+    duration = 0.08 # segundos
+    t = np.linspace(0, duration, int(SAMPLE_RATE * duration), False)
+    tone = np.sin(freq * t * 2 * np.pi)
+    audio = np.int16(tone / np.max(np.abs(tone)) * 32767)
+
+    sa.play_buffer(audio, 1, 2, SAMPLE_RATE)
+
 def calibrate_noise(duration=1.5):
     print("🔇 A calibrar ruído ambiente... fica em silêncio")
 
@@ -175,7 +195,7 @@ def calibrate_noise(duration=1.5):
             samples.append(volume)
 
     noise_level = np.mean(samples)
-    threshold = noise_level * 1.8  # margem de segurança
+    threshold = noise_level * 1.5  # margem de segurança
 
     print(f"🔈 Ruído base: {noise_level:.4f}")
     print(f"🎚️ Limiar de voz: {threshold:.4f}")
