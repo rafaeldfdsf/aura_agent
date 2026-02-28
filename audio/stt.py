@@ -45,10 +45,13 @@ def listen(voice_threshold):
         callback=callback
     ):
         audio_chunks = []
+        pre_speech_buffer = []
+        MAX_PRE_CHUNKS = 6   # ~200–300 ms de áudio antes da fala
+
         silence_start = None
-        start_time = time.time()
         speech_started = False
         voice_start_time = None
+        speech_start_time = None
 
         while True:
             try:
@@ -58,16 +61,27 @@ def listen(voice_threshold):
 
             volume = np.linalg.norm(chunk) * 10
 
+            # 🔁 Guardar áudio antes da fala (buffer)
+            if not speech_started:
+                pre_speech_buffer.append(chunk)
+                if len(pre_speech_buffer) > MAX_PRE_CHUNKS:
+                    pre_speech_buffer.pop(0)
+
             # 🔇 Antes da fala começar
             if not speech_started:
                 if volume > voice_threshold:
                     if voice_start_time is None:
                         voice_start_time = time.time()
-                    elif time.time() - voice_start_time > 0.2:  # 200 ms contínuos
-                        STOP_TTS = True          # 🔴 barge-in
+                    elif time.time() - voice_start_time > 0.3:
+                        STOP_TTS = True
                         speech_started = True
+                        speech_start_time = time.time()
                         silence_start = None
-                        beep()                  # 🔔 feedback
+                        beep()
+
+                        # 👇 junta o buffer + chunk atual
+                        audio_chunks.extend(pre_speech_buffer)
+                        pre_speech_buffer.clear()
                         audio_chunks.append(chunk)
                 else:
                     voice_start_time = None
@@ -82,12 +96,13 @@ def listen(voice_threshold):
                 else:
                     if silence_start is None:
                         silence_start = time.time()
-                    elif time.time() - silence_start > 0.25:
+                    elif time.time() - silence_start > 0.7:
                         break
 
-            # ⛑️ limite de segurança
-            if speech_started and time.time() - start_time > 6:
-                break
+            # ⛑️ Limite de segurança (6s reais de fala)
+            if speech_started and speech_start_time:
+                if time.time() - speech_start_time > 6:
+                    break
 
     if not audio_chunks:
         print("❌ Não percebi.")
@@ -95,22 +110,19 @@ def listen(voice_threshold):
 
     audio = np.concatenate(audio_chunks).squeeze()
 
-    # normalizar
-    audio = audio / np.max(np.abs(audio))
-    audio_int16 = np.int16(audio * 32767)
+    # 🔧 Normalização segura (não amplifica ruído)
+    max_val = np.max(np.abs(audio))
+    if max_val > 0:
+        audio = audio / max(max_val, 0.3)
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
-        wav_path = f.name
-        write(wav_path, SAMPLE_RATE, audio_int16)
-
+    # 🚀 Transcrição
     segments, _ = whisper.transcribe(
-        wav_path,
+        audio,
         language="pt",
-        beam_size=5,
-        vad_filter=True
+        beam_size=3,
+        initial_prompt="comandos curtos e claros em português europeu",
+        vad_filter=False
     )
-
-    os.remove(wav_path)
 
     text = "".join(seg.text for seg in segments).strip()
 
