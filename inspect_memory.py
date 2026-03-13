@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Script para inspecionar a memória SQLite do agente Darian
+Script para inspecionar a memória SQLite do agente Jarvis
 """
 import sqlite3
 import os
 from datetime import datetime
 
-DB_FILE = "darian_memory.db"
+DB_FILE = "jarvis_memory.db"
 
 def inspect_memory():
     if not os.path.exists(DB_FILE):
@@ -18,7 +18,7 @@ def inspect_memory():
     cursor = conn.cursor()
     
     print("\n" + "="*60)
-    print("📊 INSPEÇÃO DE MEMÓRIA - DARIAN AGENT")
+    print("📊 INSPEÇÃO DE MEMÓRIA - JARVIS AGENT")
     print("="*60 + "\n")
     
     # === USER DATA ===
@@ -55,7 +55,7 @@ def inspect_memory():
         print("  Últimas 6 mensagens (mais recentes primeiro):")
         print("  " + "-" * 56)
         for i, msg in enumerate(reversed(messages), 1):
-            role = "👨 Utilizador" if msg['role'] == 'user' else "🤖 Darian"
+            role = "👨 Utilizador" if msg['role'] == 'user' else "🤖 Jarvis"
             text = msg['content'][:50].replace("\n", " ")
             if len(msg['content']) > 50:
                 text += "..."
@@ -74,7 +74,7 @@ def inspect_memory():
     stats = cursor.fetchall()
     
     for stat in stats:
-        role_label = "Utilizador" if stat['role'] == 'user' else "Darian"
+        role_label = "Utilizador" if stat['role'] == 'user' else "Jarvis"
         print(f"  {role_label}: {stat['count']} mensagens")
     
     # === CONSOLIDAÇÃO STATUS ===

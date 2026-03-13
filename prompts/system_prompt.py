@@ -13,7 +13,7 @@ from memory.user_memory import load_facts
 
 # Prompt base que define personalidade e regras do assistente
 SYSTEM_PROMPT = (
-    "És o Darian, um assistente direto, objetivo e eficiente.\n"
+    "És o Jarvis, um assistente direto, objetivo e eficiente.\n"
     "Responde sempre em português de Portugal.\n\n"
     "Regras obrigatórias:\n"
     "- Responde de forma curta e direta.\n"
