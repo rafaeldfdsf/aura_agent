@@ -14,6 +14,7 @@ from prompts.system_prompt import build_system_prompt
 from memory.user_memory import init_db, save_fact
 from memory.extract import extract_user_facts  # se quiseres separar
 from config import MAX_TURNS
+import os
 
 def main():
     # Inicialização

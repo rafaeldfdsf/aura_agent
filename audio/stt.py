@@ -1,163 +1,156 @@
-"""
-Speech-to-Text (escuta e transcrição).
-
-Responsabilidades:
-- Captar áudio do microfone
-- Detetar início e fim da fala
-- Filtrar ruído / TV
-- Transcrever com Whisper
-
-Este ficheiro concentra TODA a lógica de escuta.
-"""
-
-import sounddevice as sd
-import numpy as np
-import queue
-import time
-import tempfile
 import os
-from scipy.io.wavfile import write
-from faster_whisper import WhisperModel
+import queue
+import tempfile
 
-from config import SAMPLE_RATE, STOP_TTS
-from audio.signals import beep
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+import webrtcvad
+from openai import OpenAI
 
-# Modelo Whisper carregado uma única vez
-whisper = WhisperModel("small", device="cpu", compute_type="int8")
+from config import SAMPLE_RATE
 
-def listen(voice_threshold):
-    global STOP_TTS
+# Cria o cliente da OpenAI usando a variável de ambiente OPENAI_API_KEY
+client = OpenAI()
+
+# Cria o VAD.
+# Níveis possíveis: 0, 1, 2, 3
+# 0 = menos agressivo (apanha mais som, mais permissivo)
+# 3 = mais agressivo (ignora mais ruído, mais exigente)
+vad = webrtcvad.Vad(2)
+
+
+def calibrate_noise():
+    """
+    Mantemos esta função só para compatibilidade com o main.py.
+    Como agora usamos VAD, já não precisamos de calibrar ruído.
+    """
+    return 1
+
+
+def listen(_voice_threshold=None):
+    """
+    Escuta o microfone até detetar uma frase.
+    Usa VAD para perceber quando a fala começa e quando termina.
+    Depois envia o áudio para o Whisper da OpenAI e devolve o texto.
+    """
 
     print("🎤 Fala agora...")
 
+    # Fila para receber os blocos de áudio do callback do microfone
     q = queue.Queue()
 
     def callback(indata, frames, time_info, status):
+        """
+        Esta função é chamada automaticamente pelo sounddevice
+        sempre que chega um novo bloco de áudio do microfone.
+        """
         if status:
             print(status)
         q.put(indata.copy())
 
+    # 30 ms por frame a 16 kHz = 480 samples
+    # O WebRTC VAD aceita frames de 10, 20 ou 30 ms.
+    frame_duration_ms = 30
+    frame_size = int(SAMPLE_RATE * frame_duration_ms / 1000)  # 480
+
+    # Quantos frames de silêncio vamos aceitar antes de concluir que a pessoa acabou de falar.
+    max_silence_frames = 20  # ~600 ms de silêncio
+
+    # Quantos frames de pré-buffer guardamos para não cortar o início da frase.
+    pre_buffer_max = 10
+
+    # Aqui vamos acumulando os pequenos blocos imediatamente anteriores
+    # ao início da fala, para não perder as primeiras sílabas.
+    pre_buffer = []
+
+    # Aqui vamos guardar o áudio final da fala
+    recorded_frames = []
+
+    # Estado interno
+    speech_started = False
+    silence_count = 0
+
     with sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=1,
-        dtype="float32",
-        blocksize=512,
+        dtype="int16",      # WebRTC VAD espera áudio PCM 16-bit
+        blocksize=frame_size,
         callback=callback
     ):
-        audio_chunks = []
-        pre_speech_buffer = []
-        MAX_PRE_CHUNKS = 6   # ~200–300 ms de áudio antes da fala
-
-        silence_start = None
-        speech_started = False
-        voice_start_time = None
-        speech_start_time = None
-
         while True:
-            try:
-                chunk = q.get(timeout=0.05)
-            except queue.Empty:
-                continue
+            # Espera pelo próximo frame do microfone
+            chunk = q.get()
 
-            volume = np.linalg.norm(chunk) * 10
-
-            # 🔁 Guardar áudio antes da fala (buffer)
+            # Guarda no pré-buffer enquanto ainda não começou a fala
             if not speech_started:
-                pre_speech_buffer.append(chunk)
-                if len(pre_speech_buffer) > MAX_PRE_CHUNKS:
-                    pre_speech_buffer.pop(0)
+                pre_buffer.append(chunk)
+                if len(pre_buffer) > pre_buffer_max:
+                    pre_buffer.pop(0)
 
-            # 🔇 Antes da fala começar
+            # O VAD recebe bytes crus do áudio
+            is_speech = vad.is_speech(chunk.tobytes(), SAMPLE_RATE)
+
             if not speech_started:
-                if volume > voice_threshold:
-                    if voice_start_time is None:
-                        voice_start_time = time.time()
-                    elif time.time() - voice_start_time > 0.3:
-                        STOP_TTS = True
-                        speech_started = True
-                        speech_start_time = time.time()
-                        silence_start = None
-                        beep()
-
-                        # 👇 junta o buffer + chunk atual
-                        audio_chunks.extend(pre_speech_buffer)
-                        pre_speech_buffer.clear()
-                        audio_chunks.append(chunk)
-                else:
-                    voice_start_time = None
-                    continue
-
-            # 🔊 Depois da fala começar
+                # Ainda não começámos a gravar a frase
+                if is_speech:
+                    # Assim que detetamos fala:
+                    # 1) mudamos de estado
+                    # 2) copiamos o pré-buffer
+                    # 3) juntamos o frame atual
+                    speech_started = True
+                    recorded_frames.extend(pre_buffer)
+                    recorded_frames.append(chunk)
+                    pre_buffer.clear()
             else:
-                audio_chunks.append(chunk)
+                # Já começámos a gravar
+                recorded_frames.append(chunk)
 
-                if volume > voice_threshold:
-                    silence_start = None
+                if is_speech:
+                    # Se ainda há fala, reset ao contador de silêncio
+                    silence_count = 0
                 else:
-                    if silence_start is None:
-                        silence_start = time.time()
-                    elif time.time() - silence_start > 0.7:
+                    # Se este frame já não parece fala, conta como silêncio
+                    silence_count += 1
+
+                    # Se tivermos silêncio suficiente, terminamos a frase
+                    if silence_count >= max_silence_frames:
                         break
 
-            # ⛑️ Limite de segurança (6s reais de fala)
-            if speech_started and speech_start_time:
-                if time.time() - speech_start_time > 6:
-                    break
-
-    if not audio_chunks:
-        print("❌ Não percebi.")
+    # Se por algum motivo não gravou nada, devolve None
+    if not recorded_frames:
         return None
 
-    audio = np.concatenate(audio_chunks).squeeze()
+    # Junta todos os frames numa única array
+    audio = np.concatenate(recorded_frames, axis=0)
 
-    # 🔧 Normalização segura (não amplifica ruído)
-    max_val = np.max(np.abs(audio))
-    if max_val > 0:
-        audio = audio / max(max_val, 0.3)
+    # Converte para float32 para gravar WAV com soundfile sem problemas
+    audio_float = audio.astype(np.float32) / 32768.0
 
-    # 🚀 Transcrição
-    segments, _ = whisper.transcribe(
-        audio,
-        language="pt",
-        beam_size=3,
-        initial_prompt="comandos curtos e claros em português europeu",
-        vad_filter=False
-    )
+    # Guarda temporariamente o áudio num ficheiro WAV
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        temp_path = f.name
+        sf.write(temp_path, audio_float, SAMPLE_RATE)
 
-    text = "".join(seg.text for seg in segments).strip()
+    try:
+        # Envia o ficheiro para a API Whisper da OpenAI
+        with open(temp_path, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="pt"
+            )
 
+        text = transcript.text.strip()
+
+    finally:
+        # Apaga o ficheiro temporário
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+    # Se o Whisper não devolveu texto útil, ignora
     if not text:
-        print("❌ Não percebi.")
         return None
 
     print(f"Tu: {text}")
     return text
-
-def calibrate_noise(duration=1.5):
-    """
-    Mede o ruído ambiente para definir um limiar de voz dinâmico.
-
-    Deve ser chamado UMA vez no arranque.
-    """
-    print("🔇 A calibrar ruído ambiente... fica em silêncio")
-
-    samples = []
-    start = time.time()
-
-    with sd.InputStream(
-        samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype="float32"
-    ) as stream:
-        while time.time() - start < duration:
-            chunk, _ = stream.read(1024)
-            volume = np.linalg.norm(chunk) * 10
-            samples.append(volume)
-
-    noise_level = np.mean(samples)
-    threshold = noise_level * 1.5  # margem de segurança
-
-    print(f"🔈 Ruído base: {noise_level:.4f}")
-    print(f"🎚️ Limiar de voz: {threshold:.4f}")
-
-    return threshold
