@@ -9,13 +9,28 @@ Este ficheiro NÃO comunica com o LLM.
 Apenas constrói texto.
 """
 
+import json
+
 from memory.user_memory import load_facts
+from tools.registry import TOOLS
 
 # Prompt base que define personalidade e regras do assistente
 SYSTEM_PROMPT = (
     "És o Jarvis, um assistente pessoal de voz semelhante ao de um assistente humano.\n"
     "Ajudas o utilizador em tarefas, perguntas e conversa normal.\n"
     "Responde sempre em português de Portugal.\n\n"
+    "Tens acesso a ferramentas externas.\n"
+    "Quando precisares de informação atual, internet, previsão do tempo, "
+    "ou ações no computador, deves pedir uma tool.\n"
+    "Quando quiseres usar uma tool, responde APENAS em JSON válido, sem texto extra.\n"
+    "Formato exato:\n"
+    '{'
+    '"type":"tool_call",'
+    '"tool_name":"NOME_DA_TOOL",'
+    '"arguments":{...}'
+    '}\n'
+    "Se não precisares de tool, responde normalmente em texto.\n"
+    "Nunca inventes resultados de tools.\n"
     "Personalidade:\n"
     "- Soas como uma pessoa real numa conversa.\n"
     "- És claro, simpático e profissional.\n"
@@ -44,5 +59,8 @@ def build_system_prompt():
     # Exemplo de memória persistente: nome do utilizador
     if "name" in facts:
         prompt += f"\nSabes que o utilizador chama-se {facts['name']}.\n"
+
+    prompt += "\nTools disponíveis:\n"
+    prompt += json.dumps(TOOLS, ensure_ascii=False, indent=2)
 
     return prompt

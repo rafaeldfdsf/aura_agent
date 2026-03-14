@@ -3,27 +3,69 @@ Comunicação com o LLM (Ollama).
 
 Responsabilidade única:
 - Enviar mensagens ao Ollama
-- Devolver a resposta do modelo
+- Receber a resposta do modelo
 
-Não deve conter lógica de conversa nem estado.
+Este módulo NÃO:
+- controla fluxo da conversa
+- executa tools
+- mantém estado
+
+Ele apenas faz a chamada HTTP ao Ollama.
 """
 
 import requests
 from config import OLLAMA_URL, MODEL
 
+
 def call_llm(messages):
     """
-    Envia uma conversa ao Ollama e devolve a resposta do modelo.
+    Envia a conversa ao Ollama e devolve a resposta do modelo.
 
     :param messages: lista de mensagens no formato OpenAI
-    :return: texto da resposta do assistente
+                     exemplo:
+                     [
+                       {"role": "system", "content": "..."},
+                       {"role": "user", "content": "..."}
+                     ]
+
+    :return: texto da resposta do modelo
     """
+
+    # ---------------------------------
+    # Payload enviado ao Ollama
+    # ---------------------------------
     payload = {
-        "model": MODEL,
+        "model": MODEL,      # modelo configurado (ex: qwen2.5, llama3, mistral)
         "messages": messages,
-        "stream": False,
+        "stream": False,     # queremos resposta completa (não streaming)
+
+        # opções que controlam o comportamento do modelo
+        "options": {
+            "temperature": 0.7,   # criatividade moderada
+            "top_p": 0.9,         # diversidade de resposta
+        }
     }
 
-    r = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=60)
+    # ---------------------------------
+    # Fazer pedido HTTP ao Ollama
+    # ---------------------------------
+    r = requests.post(
+        f"{OLLAMA_URL}/api/chat",
+        json=payload,
+        timeout=60
+    )
+
+    # se houver erro HTTP lança exceção
     r.raise_for_status()
-    return r.json()["message"]["content"]
+
+    data = r.json()
+
+    # ---------------------------------
+    # Extrair texto da resposta
+    # ---------------------------------
+    reply = data["message"]["content"]
+
+    # remover espaços extras
+    reply = reply.strip()
+
+    return reply

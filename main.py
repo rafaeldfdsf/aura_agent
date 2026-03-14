@@ -2,88 +2,167 @@
 Ponto de entrada da aplicação.
 
 Responsabilidade:
-- Orquestrar os módulos
-- Controlar o ciclo principal
-- Ligar STT → LLM → TTS
+- Orquestrar todos os módulos
+- Controlar o ciclo principal do assistente
+- Ligar os componentes:
+  STT (voz → texto)
+  LLM (texto → resposta / tool)
+  TTS (texto → voz)
 """
 
-from audio.stt import listen, calibrate_noise
+# STT
+from audio.stt import listen, wait_for_wake_word, calibrate_noise
+
+# TTS
 from audio.tts import speak
+
+# LLM
 from llm.ollama import call_llm
+
+# prompts
 from prompts.system_prompt import build_system_prompt
+
+# memória
 from memory.user_memory import init_db
 from memory.extract import extract_user_facts
+
+# config
 from config import MAX_TURNS
-from tools.router import use_tool
+
+# tools
+from tools.executor import extract_tool_call, execute_tool
+
+import json
+
 
 def main():
 
-    # Inicialização
+    # ---------------------------------
+    # Inicializar memória persistente
+    # ---------------------------------
     init_db()
 
-    # calibração de ruído do microfone
+    # ---------------------------------
+    # Calibração do microfone
+    # (mantido para compatibilidade)
+    # ---------------------------------
     voice_threshold = calibrate_noise()
 
-    # histórico da conversa
+    # ---------------------------------
+    # Histórico da conversa
+    # ---------------------------------
     messages = [{"role": "system", "content": build_system_prompt()}]
 
     print("🟢 Assistente com voz iniciado")
-    print("Diz 'sair' para terminar\n")
+    print("Diz 'Jarvis' para começar a falar\n")
 
+    # ---------------------------------
+    # LOOP PRINCIPAL DO ASSISTENTE
+    # ---------------------------------
     while True:
 
-        # ouvir utilizador
-        user = listen(voice_threshold)
+        # ---------------------------------
+        # Esperar palavra de ativação
+        # ---------------------------------
+        wait_for_wake_word()
 
-        if not user:
-            continue
+        speak("Sim?")
 
-        # comando para sair
-        if user.lower() in {"sair", "exit", "quit"}:
-            speak("Até logo!")
-            break
+        # ---------------------------------
+        # MODO CONVERSA
+        # ---------------------------------
+        while True:
 
-        # guardar mensagem do utilizador
-        messages.append({"role": "user", "content": user})
+            # ouvir utilizador
+            user = listen(voice_threshold)
 
-        # extrair factos do utilizador (memória)
-        extract_user_facts(user)
+            # se não houve fala válida
+            if not user:
+                continue
 
-        # atualizar system prompt com memória
-        messages[0]["content"] = build_system_prompt()
+            # sair do modo conversa
+            if user.lower() in {"sair", "exit", "quit"}:
+                speak("Ok, fico à espera.")
+                break
 
-        # -----------------------------
-        # VERIFICAR SE EXISTE UMA TOOL
-        # -----------------------------
-        tool_response = use_tool(user)
+            # guardar mensagem do utilizador
+            messages.append({"role": "user", "content": user})
 
-        if tool_response:
+            # tentar extrair factos do utilizador
+            extract_user_facts(user)
 
-            reply = tool_response
+            # atualizar system prompt com memória
+            messages[0]["content"] = build_system_prompt()
 
-        else:
-
-            # chamar LLM se nenhuma tool resolver
+            # ---------------------------------
+            # PRIMEIRA CHAMADA AO LLM
+            # ---------------------------------
             try:
-                reply = call_llm(messages)
+
+                first_reply = call_llm(messages)
 
             except Exception as e:
+
                 print(f"❌ Erro LLM: {e}")
                 speak("Houve um erro ao contactar o modelo.")
                 continue
 
-        # guardar resposta no histórico
-        messages.append({"role": "assistant", "content": reply})
+            # ---------------------------------
+            # VERIFICAR TOOL CALL
+            # ---------------------------------
+            tool_call = extract_tool_call(first_reply)
 
-        # limitar histórico para não crescer demasiado
-        if len(messages) > 1 + MAX_TURNS * 2:
-            messages = messages[:1] + messages[-MAX_TURNS * 2:]
+            if tool_call:
 
-        print(f"\nAssistente: {reply}\n")
+                # executar ferramenta
+                result = execute_tool(
+                    tool_call["tool_name"],
+                    tool_call.get("arguments", {})
+                )
 
-        # falar resposta
-        speak(reply)
+                # guardar pedido de tool
+                messages.append({"role": "assistant", "content": first_reply})
+
+                # guardar resultado da tool
+                messages.append({
+                    "role": "tool",
+                    "content": json.dumps(result, ensure_ascii=False)
+                })
+
+                # ---------------------------------
+                # SEGUNDA CHAMADA AO LLM
+                # ---------------------------------
+                try:
+
+                    reply = call_llm(messages)
+
+                except Exception as e:
+
+                    print(f"❌ Erro após tool: {e}")
+                    speak("Houve um erro ao executar a ferramenta.")
+                    continue
+
+            else:
+
+                # resposta direta do modelo
+                reply = first_reply
+
+            # guardar resposta final
+            messages.append({"role": "assistant", "content": reply})
+
+            # ---------------------------------
+            # LIMITAR HISTÓRICO
+            # ---------------------------------
+            if len(messages) > 1 + MAX_TURNS * 2:
+                messages = messages[:1] + messages[-MAX_TURNS * 2:]
+
+            # mostrar no terminal
+            print(f"\nAssistente: {reply}\n")
+
+            # falar resposta
+            speak(reply)
 
 
+# ponto de entrada do programa
 if __name__ == "__main__":
     main()
