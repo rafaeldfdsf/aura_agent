@@ -12,7 +12,7 @@ from memory.extract import extract_user_facts
 from memory.user_memory import init_db
 from prompts.system_prompt import build_system_prompt
 from tools.executor import execute_tool, extract_tool_call
-from tools.registry import API_SAFE_TOOLS, TOOLS
+from tools.registry import TOOLS
 
 
 class AssistantService:
@@ -20,7 +20,7 @@ class AssistantService:
 
     def __init__(self, enable_desktop_tools: bool = False):
         self.enable_desktop_tools = enable_desktop_tools
-        self.available_tools = TOOLS if enable_desktop_tools else API_SAFE_TOOLS
+        self.available_tools = TOOLS
         self.sessions = {}
         self.lock = Lock()
         init_db()
@@ -53,29 +53,195 @@ class AssistantService:
                 raise ValueError("A mensagem do utilizador nao pode estar vazia.")
 
             user_message = user_message.strip()
+            msg = user_message.lower()
+
+            # 🔥 =========================
+            # 🔥 COMANDOS DIRETOS (PC)
+            # 🔥 =========================
+
+            if any(x in msg for x in ["fecha", "fechar"]) and "janela" in msg:
+                return {
+                    "session_id": session_id,
+                    "reply": "A fechar a janela.",
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": {
+                        "type": "pc_action",
+                        "action": "close_window"
+                    }
+                }
+
+            if "volume" in msg and ("aumenta" in msg or "subir" in msg):
+                return {
+                    "session_id": session_id,
+                    "reply": "A aumentar o volume.",
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": {
+                        "type": "pc_action",
+                        "action": "volume_up"
+                    }
+                }
+
+            if "volume" in msg and ("baixa" in msg or "diminuir" in msg):
+                return {
+                    "session_id": session_id,
+                    "reply": "A baixar o volume.",
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": {
+                        "type": "pc_action",
+                        "action": "volume_down"
+                    }
+                }
+
+            if "screenshot" in msg or "captura" in msg:
+                return {
+                    "session_id": session_id,
+                    "reply": "A tirar screenshot.",
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": {
+                        "type": "pc_action",
+                        "action": "screenshot"
+                    }
+                }
+
+            # 🔥 =========================
+            # 🔥 CONTINUA FLUXO NORMAL
+            # 🔥 =========================
+
             messages.append({"role": "user", "content": user_message})
+
             extract_user_facts(user_message)
             messages[0]["content"] = build_system_prompt(self.available_tools)
 
             first_reply = call_llm(messages)
-            tool_call = extract_tool_call(first_reply)
 
+            # Tentar converter resposta em JSON
+            parsed = None
+            try:
+                parsed = json.loads(first_reply)
+            except Exception:
+                pass
+
+            tool_call = None
+
+            if isinstance(parsed, dict) and parsed.get("type") == "tool_call":
+                tool_call = parsed
+
+            if not tool_call:
+                tool_call = extract_tool_call(first_reply)
+
+            client_action = None
             executed_tool = None
             reply = first_reply
 
-            if tool_call:
-                executed_tool = execute_tool(
-                    tool_call["tool_name"],
-                    tool_call.get("arguments", {}),
-                    allow_desktop_tools=self.enable_desktop_tools,
-                )
+            # 🔧 Converter tool → ação Flutter
+            def build_client_action(tool_call: dict):
+                tool_name = tool_call.get("tool_name")
+                args = tool_call.get("arguments", {}) or {}
 
-                messages.append({"role": "assistant", "content": first_reply})
-                messages.append({
-                    "role": "tool",
-                    "content": json.dumps(executed_tool, ensure_ascii=False),
-                })
-                reply = call_llm(messages)
+                if tool_name in ["open_app", "open_youtube"]:
+                    app_name = (args.get("app_name") or "").strip().lower()
+
+                    if tool_name == "open_youtube":
+                        app_name = "youtube"
+
+                    if not app_name:
+                        return None
+
+                    if app_name in ["youtube", "yt"]:
+                        return {
+                            "type": "open_url",
+                            "url": "https://www.youtube.com",
+                        }
+
+                    return {
+                        "type": "open_app",
+                        "app_name": app_name,
+                    }
+
+                if tool_name == "open_website":
+                    url = (args.get("url") or "").strip()
+
+                    if not url:
+                        return None
+
+                    if not url.startswith("http"):
+                        url = "https://" + url
+
+                    return {
+                        "type": "open_url",
+                        "url": url,
+                    }
+
+                return None
+
+            # 🔥 PROCESSAMENTO DE TOOL
+            if tool_call:
+                try:
+                    args = tool_call.get("arguments", {})
+
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except Exception:
+                            args = {}
+
+                    if not isinstance(args, dict):
+                        args = {}
+
+                    tool_call["arguments"] = args
+                    tool_name = tool_call.get("tool_name")
+
+                    # 👉 ações mobile
+                    if tool_name in {"open_website", "open_app", "open_youtube"}:
+                        client_action = build_client_action(tool_call)
+
+                        if client_action:
+                            executed_tool = {
+                                "tool_name": tool_name,
+                                "ok": True,
+                                "data": "Ação enviada para o cliente.",
+                            }
+
+                            reply = "A executar a ação."
+                        else:
+                            executed_tool = {
+                                "tool_name": tool_name,
+                                "ok": False,
+                                "data": "Erro ao converter ação.",
+                            }
+
+                            reply = executed_tool["data"]
+
+                    # 👉 outras tools backend
+                    else:
+                        executed_tool = execute_tool(
+                            tool_name,
+                            args,
+                            allow_desktop_tools=self.enable_desktop_tools,
+                        )
+
+                        messages.append({
+                            "role": "assistant",
+                            "content": json.dumps(tool_call, ensure_ascii=False),
+                        })
+
+                        messages.append({
+                            "role": "tool",
+                            "content": json.dumps(executed_tool, ensure_ascii=False),
+                        })
+
+                        if executed_tool.get("ok"):
+                            reply = call_llm(messages)
+                        else:
+                            reply = f"Nao consegui executar: {executed_tool.get('data')}"
+
+                except Exception as e:
+                    print("ERRO TOOL:", e)
+                    reply = f"Erro ao executar ferramenta: {str(e)}"
 
             messages.append({"role": "assistant", "content": reply})
 
@@ -87,4 +253,38 @@ class AssistantService:
                 "reply": reply,
                 "tool_result": executed_tool,
                 "desktop_tools_enabled": self.enable_desktop_tools,
+                "client_action": client_action,
             }
+        
+def build_client_action(tool_call: dict) -> dict | None:
+    tool_name = tool_call.get("tool_name")
+    args = tool_call.get("arguments", {}) or {}
+
+    if tool_name == "open_website":
+        url = args.get("url", "").strip()
+        if not url:
+            return None
+
+        if not url.startswith("http"):
+            url = "https://" + url
+
+        return {
+            "type": "open_url",
+            "url": url,
+        }
+
+    if tool_name == "open_app":
+        app_name = args.get("app_name", "").strip().lower()
+
+        if app_name in ["youtube", "yt"]:
+            return {
+                "type": "open_url",
+                "url": "https://www.youtube.com",
+            }
+
+        return {
+            "type": "show_message",
+            "message": f"A app '{app_name}' ainda não está mapeada no telemóvel.",
+        }
+
+    return None

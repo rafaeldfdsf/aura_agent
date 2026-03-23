@@ -5,7 +5,7 @@ from assistant.service import AssistantService
 
 
 app = FastAPI(
-    title="Aura Codex API",
+    title="Jarvis Codex API",
     version="1.0.0",
     description="API HTTP para ligar o assistente a aplicacoes Windows, Android e iPhone.",
 )

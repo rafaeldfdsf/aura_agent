@@ -54,7 +54,7 @@ def run_server_mode(host: str, port: int):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Aura Codex em modo voz local ou API HTTP para clientes externos."
+        description="Jarvis Codex em modo voz local ou API HTTP para clientes externos."
     )
     parser.add_argument(
         "--mode",

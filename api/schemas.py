@@ -1,19 +1,21 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
+
+
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
 
 
 class SessionResponse(BaseModel):
     session_id: str
-    tools: list[dict]
+    tools: list
     desktop_tools_enabled: bool
-
-
-class ChatRequest(BaseModel):
-    session_id: str = Field(..., min_length=1)
-    message: str = Field(..., min_length=1)
 
 
 class ChatResponse(BaseModel):
     session_id: str
     reply: str
-    tool_result: dict | None = None
+    tool_result: Optional[Dict[str, Any]] = None
     desktop_tools_enabled: bool
+    client_action: Optional[Dict[str, Any]] = None
