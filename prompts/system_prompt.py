@@ -43,7 +43,7 @@ SYSTEM_PROMPT = (
     "- Se o utilizador disser algo social (ex: obrigado), responde de forma educada.\n"
 )
 
-def build_system_prompt():
+def build_system_prompt(available_tools=None):
     """
     Constrói o system prompt final.
 
@@ -61,6 +61,6 @@ def build_system_prompt():
         prompt += f"\nSabes que o utilizador chama-se {facts['name']}.\n"
 
     prompt += "\nTools disponíveis:\n"
-    prompt += json.dumps(TOOLS, ensure_ascii=False, indent=2)
+    prompt += json.dumps(available_tools or TOOLS, ensure_ascii=False, indent=2)
 
     return prompt

@@ -4,6 +4,7 @@ from tools.weather import get_weather
 from tools.web_search import search_web
 from tools.desktop import open_website, open_app, type_text, press_keys
 from tools.schemas import tool_result
+from tools.registry import DESKTOP_TOOL_NAMES
 
 
 def extract_tool_call(text: str):
@@ -23,8 +24,15 @@ def extract_tool_call(text: str):
     return data
 
 
-def execute_tool(tool_name: str, arguments: dict):
+def execute_tool(tool_name: str, arguments: dict, allow_desktop_tools: bool = True):
     try:
+        if tool_name in DESKTOP_TOOL_NAMES and not allow_desktop_tools:
+            return tool_result(
+                tool_name,
+                False,
+                "Esta tool esta desativada neste modo de execucao."
+            )
+
         if tool_name == "get_weather":
             city = arguments.get("city", "Lisboa")
             return tool_result(tool_name, True, get_weather(city))

@@ -58,37 +58,6 @@ def transcribe(audio):
 
 
 # -----------------------------
-# Esperar wake word
-# -----------------------------
-def wait_for_wake_word():
-
-    print("🎤 A ouvir palavra de ativação...")
-
-    while True:
-
-        audio = sd.rec(
-            int(3 * SAMPLE_RATE),
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="float32"
-        )
-
-        sd.wait()
-
-        text = transcribe(audio)
-
-        if not text:
-            continue
-
-        if "jarvis" in text.lower():
-
-            print("🔔 Jarvis detectado")
-            beep()
-
-            return
-
-
-# -----------------------------
 # Ouvir comando com VAD
 # -----------------------------
 def listen(_voice_threshold=None):

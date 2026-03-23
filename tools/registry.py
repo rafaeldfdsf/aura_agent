@@ -42,3 +42,12 @@ TOOLS = [
         }
     }
 ]
+
+DESKTOP_TOOL_NAMES = {
+    "open_website",
+    "open_app",
+    "type_text",
+    "press_keys",
+}
+
+API_SAFE_TOOLS = [tool for tool in TOOLS if tool["name"] not in DESKTOP_TOOL_NAMES]
