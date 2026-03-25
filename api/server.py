@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException
-
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from api.schemas import ChatRequest, ChatResponse, SessionResponse
 from assistant.service import AssistantService
+from openai import OpenAI
+import tempfile
 
+client = OpenAI()
 
 app = FastAPI(
     title="Jarvis Codex API",
@@ -39,3 +41,18 @@ def chat(payload: ChatRequest):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.post("/transcribe")
+async def transcribe(file: UploadFile = File(...)):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    with open(tmp_path, "rb") as audio_file:
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file
+        )
+
+    return transcript.text
