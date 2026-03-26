@@ -1,10 +1,13 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, APIRouter
 from api.schemas import ChatRequest, ChatResponse, SessionResponse
 from assistant.service import AssistantService
 from openai import OpenAI
+from audio.tts import synthesize_speech
 import tempfile
 
 client = OpenAI()
+
+router = APIRouter()
 
 app = FastAPI(
     title="Jarvis Codex API",
@@ -56,3 +59,13 @@ async def transcribe(file: UploadFile = File(...)):
         )
 
     return transcript.text
+
+@router.post("/tts")
+async def tts_endpoint(data: dict):
+    text = data.get("text")
+
+    audio = synthesize_speech(text)
+
+    return {"audio": audio}
+
+app.include_router(router)

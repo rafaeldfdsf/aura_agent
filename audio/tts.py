@@ -6,31 +6,33 @@ Responsabilidade:
 - Reproduzir o áudio
 
 Nota:
-- Usa gTTS (MP3)
-- Não tenta reconhecimento nem interrupção aqui
+- Usa Cloud Text-to-Speech API da google
 """
 
-import tempfile
-import os
-from gtts import gTTS
-from playsound import playsound
-from config import STOP_TTS
+from google.cloud import texttospeech
+import base64
 
-def speak(text):
-    """
-    Converte texto em fala e reproduz.
+client = texttospeech.TextToSpeechClient()
 
-    :param text: texto a ser falado
-    """
-    # Pequenas pausas naturais
-    text = text.replace(",", ", ").replace(".", ". ")
+def synthesize_speech(text: str):
+    input_text = texttospeech.SynthesisInput(text=text)
 
-    tts = gTTS(text=text, lang="pt", tld="pt", slow=False)
+    voice = texttospeech.VoiceSelectionParams(
+        language_code="pt-PT",
+        name="pt-PT-Wavenet-D",  # voz natural 🔥
+    )
 
-    # Ficheiro temporário
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
-        path = f.name
-        tts.save(path)
+    audio_config = texttospeech.AudioConfig(
+        audio_encoding=texttospeech.AudioEncoding.MP3
+    )
 
-    playsound(path)
-    os.remove(path)
+    response = client.synthesize_speech(
+        input=input_text,
+        voice=voice,
+        audio_config=audio_config
+    )
+
+    # devolver em base64 (mais fácil para Flutter)
+    audio_base64 = base64.b64encode(response.audio_content).decode("utf-8")
+
+    return audio_base64
