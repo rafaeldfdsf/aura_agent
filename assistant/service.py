@@ -11,8 +11,9 @@ from llm.ollama import call_llm
 from memory.extract import extract_user_facts
 from memory.user_memory import init_db
 from prompts.system_prompt import build_system_prompt
-from tools.executor import execute_tool, extract_tool_call
+from tools.executor import execute_tool, extract_tool_call, parse_day
 from tools.registry import TOOLS
+from tools.weather import CITY_COORDS
 
 
 class AssistantService:
@@ -105,6 +106,42 @@ class AssistantService:
                         "type": "pc_action",
                         "action": "screenshot"
                     }
+                }
+
+            # 🔥 =========================
+            # 🔥 COMANDOS DE CLIMA (fallback local rápido)
+            # 🔥 =========================
+
+            if "tempo" in msg:
+                day_offset = parse_day(msg)
+                city = "Lisboa"
+
+                for known_city in CITY_COORDS.keys():
+                    if known_city in msg:
+                        city = known_city
+                        break
+
+                executed_tool = execute_tool("get_weather", {"city": city, "day_offset": day_offset})
+
+                # passar resultado para LLM para resposta mais natural
+                tool_call = {
+                    "type": "tool_call",
+                    "tool_name": "get_weather",
+                    "arguments": {"city": city, "day_offset": day_offset},
+                }
+
+                messages.append({"role": "user", "content": user_message})
+                messages.append({"role": "assistant", "content": json.dumps(tool_call, ensure_ascii=False)})
+                messages.append({"role": "tool", "content": json.dumps(executed_tool, ensure_ascii=False)})
+
+                reply = call_llm(messages)
+
+                return {
+                    "session_id": session_id,
+                    "reply": reply,
+                    "tool_result": executed_tool,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": None,
                 }
 
             # 🔥 =========================
@@ -235,7 +272,11 @@ class AssistantService:
                         })
 
                         if executed_tool.get("ok"):
-                            reply = call_llm(messages)
+                            if tool_name in {"get_weather", "search_web"}:
+                                # fornecer a resposta da tool ao LLM e deixar o LLM reformular para a pergunta
+                                reply = call_llm(messages)
+                            else:
+                                reply = call_llm(messages)
                         else:
                             reply = f"Nao consegui executar: {executed_tool.get('data')}"
 

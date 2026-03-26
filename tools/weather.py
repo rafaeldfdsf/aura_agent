@@ -1,3 +1,4 @@
+import random
 import requests
 
 CITY_COORDS = {
@@ -10,17 +11,18 @@ CITY_COORDS = {
 }
 
 
-def get_weather(city: str = "Lisboa") -> str:
+def get_weather(city: str = "Lisboa", day_offset: int = 1) -> str:
     """
     Obtém previsão do tempo.
 
     day_offset:
+    0 = hoje
     1 = amanhã
     2 = depois de amanhã
     3+ = dias seguintes
     """
 
-    city_key = city.lower()
+    city_key = city.lower().strip()
     lat, lon = CITY_COORDS.get(city_key, CITY_COORDS["lisboa"])
 
     url = (
@@ -30,13 +32,42 @@ def get_weather(city: str = "Lisboa") -> str:
         "&timezone=Europe/Lisbon"
     )
 
-    r = requests.get(url)
+    r = requests.get(url, timeout=10)
+    r.raise_for_status()
     data = r.json()
+
+    # Limitar day_offset ao intervalo disponível
+    max_days = len(data.get("daily", {}).get("temperature_2m_max", [])) - 1
+    if max_days < 0:
+        raise ValueError("Dados de temperatura não disponíveis no serviço de previsão")
+
+    if day_offset < 0:
+        day_offset = 0
+    elif day_offset > max_days:
+        day_offset = max_days
 
     temp_max = data["daily"]["temperature_2m_max"][day_offset]
     temp_min = data["daily"]["temperature_2m_min"][day_offset]
 
-    return (
-        f"No dia previsto em {city.title()}, a temperatura deverá variar "
-        f"entre {temp_min}°C e {temp_max}°C."
+    day_names = ["hoje", "amanhã", "depois de amanhã"]
+    day_label = day_names[day_offset] if day_offset < len(day_names) else f"daqui a {day_offset} dias"
+
+    day_label_title = day_label.capitalize()
+
+    templates = [
+        "{day_label_title} em {city}, espera-se uma temperatura entre {temp_min}°C e {temp_max}°C.",
+        "Para {city}, {day_label} a previsão indica entre {temp_min}°C e {temp_max}°C.",
+        "{day_label_title} em {city} deve ficar de {temp_min}°C a {temp_max}°C, com clima confortável.",
+        "A previsão para {city} ({day_label}) é de {temp_min}°C a {temp_max}°C.",
+        "Parece que {city} terá {temp_min}°C a {temp_max}°C {day_label}.",
+    ]
+
+    template = random.choice(templates)
+
+    return template.format(
+        day_label=day_label,
+        day_label_title=day_label_title,
+        city=city.title(),
+        temp_min=temp_min,
+        temp_max=temp_max,
     )

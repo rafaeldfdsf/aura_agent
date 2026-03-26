@@ -8,20 +8,62 @@ from tools.registry import DESKTOP_TOOL_NAMES
 
 
 def extract_tool_call(text: str):
+    if not isinstance(text, str):
+        return None
+
     text = text.strip()
 
-    if not text.startswith("{"):
+    def parse_json_fragment(fragment: str):
+        try:
+            data = json.loads(fragment)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(data, dict) and data.get("type") == "tool_call":
+            return data
         return None
 
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return None
+    # quick path: exact JSON
+    if text.startswith("{") and text.endswith("}"):
+        result = parse_json_fragment(text)
+        if result:
+            return result
 
-    if data.get("type") != "tool_call":
-        return None
+    # search any JSON object inside the text
+    depth = 0
+    in_string = False
+    escaped = False
+    start = None
 
-    return data
+    for i, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch == '{':
+            if depth == 0:
+                start = i
+            depth += 1
+            continue
+
+        if ch == '}':
+            if depth > 0:
+                depth -= 1
+            if depth == 0 and start is not None:
+                candidate = text[start:i+1]
+                result = parse_json_fragment(candidate)
+                if result:
+                    return result
+
+    return None
 
 
 def execute_tool(tool_name: str, arguments: dict, allow_desktop_tools: bool = True):
@@ -35,7 +77,16 @@ def execute_tool(tool_name: str, arguments: dict, allow_desktop_tools: bool = Tr
 
         if tool_name == "get_weather":
             city = arguments.get("city", "Lisboa")
-            return tool_result(tool_name, True, get_weather(city))
+            day_offset = arguments.get("day_offset")
+            if day_offset is None:
+                # suporta parâmetro de texto p.ex. "amanhã" -> 1
+                text = arguments.get("text", "")
+                day_offset = parse_day(text)
+            try:
+                day_offset = int(day_offset)
+            except (TypeError, ValueError):
+                day_offset = 1
+            return tool_result(tool_name, True, get_weather(city, day_offset))
 
         if tool_name == "search_web":
             query = arguments.get("query", "")
@@ -64,18 +115,21 @@ def execute_tool(tool_name: str, arguments: dict, allow_desktop_tools: bool = Tr
     
 def parse_day(text):
 
-    text = text.lower()
+    text = (text or "").lower()
 
-    if "amanhã" in text:
-        return 1
-
-    if "depois de amanhã" in text:
+    if "depois de amanhã" in text or "depois de amanha" in text:
         return 2
 
-    if "sábado" in text:
+    if "amanhã" in text or "amanha" in text:
+        return 1
+
+    if "hoje" in text:
+        return 0
+
+    if "sábado" in text or "sabado" in text:
         return 3
 
     if "domingo" in text:
         return 4
 
-    return 1
+    return 0
