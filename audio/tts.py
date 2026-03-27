@@ -19,7 +19,7 @@ def synthesize_speech(text: str):
 
     voice = texttospeech.VoiceSelectionParams(
         language_code="pt-PT",
-        name="pt-PT-Wavenet-D",  # voz natural 🔥
+        name="pt-PT-Wavenet-D",
     )
 
     audio_config = texttospeech.AudioConfig(
