@@ -63,6 +63,18 @@ def build_system_prompt(available_tools=None):
     if "name" in facts:
         prompt += f"\nSabes que o utilizador chama-se {facts['name']}.\n"
 
+    # Preferências do utilizador
+    if facts.get("preferences"):
+        prompt += "\nPreferências do utilizador:\n"
+        for pref in facts["preferences"]:
+            prompt += f"- {pref}\n"
+
+    # Lembretes do utilizador
+    if facts.get("reminders"):
+        prompt += "\nLembretes importantes:\n"
+        for rem in facts["reminders"]:
+            prompt += f"- {rem}\n"
+
     prompt += "\nTools disponíveis:\n"
     prompt += json.dumps(available_tools or TOOLS, ensure_ascii=False, indent=2)
 

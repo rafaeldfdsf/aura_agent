@@ -19,3 +19,15 @@ class ChatResponse(BaseModel):
     tool_result: Optional[Dict[str, Any]] = None
     desktop_tools_enabled: bool
     client_action: Optional[Dict[str, Any]] = None
+
+
+class MemoryEntryResponse(BaseModel):
+    key: str
+    value: str
+    type: str
+    label: str
+    index: Optional[int] = None
+
+
+class MemoryUpdateRequest(BaseModel):
+    value: str

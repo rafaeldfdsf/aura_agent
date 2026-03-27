@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from threading import Lock
 from uuid import uuid4
 
-from config import MAX_TURNS
+from config import MAX_TURNS, DB_FILE
 from llm.ollama import call_llm
 from memory.extract import extract_user_facts
-from memory.user_memory import init_db
+from memory.user_memory import init_db, load_facts, delete_preference, delete_reminder
 from prompts.system_prompt import build_system_prompt
 from tools.executor import execute_tool, extract_tool_call, parse_day
 from tools.registry import TOOLS
@@ -109,12 +110,122 @@ class AssistantService:
                 }
 
             # 🔥 =========================
+            # 🔥 COMANDOS DE MEMÓRIA
+            # 🔥 =========================
+
+            if any(x in msg for x in ["memória", "memoria", "lembretes", "preferências", "preferencias"]) and any(y in msg for y in ["mostra", "lista", "ver", "mostrar"]):
+                facts = load_facts()
+                table_format = "tabela" in msg or "table" in msg
+
+                if table_format:
+                    # Formato de tabela
+                    reply_lines = ["| ID | Tipo | Conteúdo |", "|----|------|---------|"]
+
+                    if "name" in facts:
+                        reply_lines.append(f"| - | Nome | {facts['name']} |")
+
+                    preferences = facts.get("preferences", [])
+                    for i, pref in enumerate(preferences, 1):
+                        reply_lines.append(f"| {i} | Preferência | {pref} |")
+
+                    reminders = facts.get("reminders", [])
+                    for i, rem in enumerate(reminders, 1):
+                        reply_lines.append(f"| {i} | Lembrete | {rem} |")
+
+                    if not preferences and not reminders and "name" not in facts:
+                        reply_lines.append("| - | - | Nenhuma informação guardada |")
+
+                    reply = "\n".join(reply_lines)
+                else:
+                    # Formato de lista (original)
+                    response_parts = []
+
+                    if "name" in facts:
+                        response_parts.append(f"Nome guardado: {facts['name']}")
+
+                    preferences = facts.get("preferences", [])
+                    if preferences:
+                        response_parts.append("Preferências:")
+                        for i, pref in enumerate(preferences, 1):
+                            response_parts.append(f"  {i}. {pref}")
+                    else:
+                        response_parts.append("Nenhuma preferência guardada.")
+
+                    reminders = facts.get("reminders", [])
+                    if reminders:
+                        response_parts.append("Lembretes:")
+                        for i, rem in enumerate(reminders, 1):
+                            response_parts.append(f"  {i}. {rem}")
+                    else:
+                        response_parts.append("Nenhum lembrete guardado.")
+
+                    reply = "\n".join(response_parts)
+
+                return {
+                    "session_id": session_id,
+                    "reply": reply,
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": None,
+                }
+
+            # Remover preferência
+            import re
+            match = re.search(r"remove\s+preferência\s+(\d+)|remover\s+preferencia\s+(\d+)", msg, re.IGNORECASE)
+            if match:
+                index = int(match.group(1) or match.group(2))
+                delete_preference(index)
+                return {
+                    "session_id": session_id,
+                    "reply": f"Preferência {index} removida da memória.",
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": None,
+                }
+
+            # Remover lembrete
+            match = re.search(r"remove\s+lembrete\s+(\d+)|remover\s+lembrete\s+(\d+)", msg, re.IGNORECASE)
+            if match:
+                index = int(match.group(1) or match.group(2))
+                delete_reminder(index)
+                return {
+                    "session_id": session_id,
+                    "reply": f"Lembrete {index} removido da memória.",
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": None,
+                }
+
+            # Limpar toda a memória
+            if any(x in msg for x in ["limpa", "limpar", "esquece", "esquecer"]) and "memória" in msg or "memoria" in msg:
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute("DELETE FROM user_memory")
+                conn.commit()
+                conn.close()
+                return {
+                    "session_id": session_id,
+                    "reply": "Toda a memória foi limpa.",
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": None,
+                }
+
+            # 🔥 =========================
             # 🔥 COMANDOS DE CLIMA (fallback local rápido)
             # 🔥 =========================
 
             if "tempo" in msg:
                 day_offset = parse_day(msg)
                 city = "Lisboa"
+
+                # Verificar preferências para cidade padrão
+                facts = load_facts()
+                preferences = facts.get("preferences", [])
+                for pref in preferences:
+                    if "tempo" in pref.lower() and "caldas da rainha" in pref.lower():
+                        city = "caldas da rainha"
+                        break
 
                 for known_city in CITY_COORDS.keys():
                     if known_city in msg:
