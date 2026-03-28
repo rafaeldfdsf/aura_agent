@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import unicodedata
+from datetime import datetime
 from threading import Lock
 from uuid import uuid4
 
@@ -15,6 +17,80 @@ from prompts.system_prompt import build_system_prompt
 from tools.executor import execute_tool, extract_tool_call, parse_day
 from tools.registry import TOOLS
 from tools.weather import CITY_COORDS
+
+
+WEEKDAYS_PT = (
+    "segunda-feira",
+    "terca-feira",
+    "quarta-feira",
+    "quinta-feira",
+    "sexta-feira",
+    "sabado",
+    "domingo",
+)
+
+MONTHS_PT = (
+    "janeiro",
+    "fevereiro",
+    "marco",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+)
+
+
+def normalize_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFD", (text or "").lower().strip())
+    return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+
+
+def build_time_reply(now: datetime) -> str:
+    if now.hour == 0 and now.minute == 0:
+        return "E meia-noite."
+
+    if now.hour == 0:
+        if now.minute == 1:
+            return "E meia-noite e 1 minuto."
+        return f"E meia-noite e {now.minute} minutos."
+
+    if now.hour == 12 and now.minute == 0:
+        return "E meio-dia."
+
+    if now.hour == 12:
+        if now.minute == 1:
+            return "E meio-dia e 1 minuto."
+        return f"E meio-dia e {now.minute} minutos."
+
+    if now.hour == 1:
+        if now.minute == 0:
+            return "E 1 hora."
+        if now.minute == 1:
+            return "E 1 hora e 1 minuto."
+        return f"E 1 hora e {now.minute} minutos."
+
+    if now.minute == 0:
+        return f"Sao {now.hour} horas."
+
+    if now.minute == 1:
+        return f"Sao {now.hour} horas e 1 minuto."
+
+    return f"Sao {now.hour} horas e {now.minute} minutos."
+
+
+def build_date_reply(now: datetime) -> str:
+    weekday = WEEKDAYS_PT[now.weekday()]
+    month = MONTHS_PT[now.month - 1]
+    return f"Hoje e {weekday}, {now.day} de {month} de {now.year}."
+
+
+def build_weekday_reply(now: datetime) -> str:
+    return f"Hoje e {WEEKDAYS_PT[now.weekday()]}."
 
 
 class AssistantService:
@@ -55,11 +131,41 @@ class AssistantService:
                 raise ValueError("A mensagem do utilizador nao pode estar vazia.")
 
             user_message = user_message.strip()
-            msg = user_message.lower()
+            msg = normalize_text(user_message)
 
-            # 🔥 =========================
-            # 🔥 COMANDOS DIRETOS (PC)
-            # 🔥 =========================
+            if any(x in msg for x in ["que horas", "horas sao", "as horas", "hora atual"]):
+                now = datetime.now().astimezone()
+                return {
+                    "session_id": session_id,
+                    "reply": build_time_reply(now),
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": None,
+                }
+
+            if any(x in msg for x in ["que dia e hoje", "qual e a data", "data de hoje", "em que dia estamos", "dia de hoje"]):
+                now = datetime.now().astimezone()
+                return {
+                    "session_id": session_id,
+                    "reply": build_date_reply(now),
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": None,
+                }
+
+            if any(x in msg for x in ["que dia da semana", "dia da semana"]):
+                now = datetime.now().astimezone()
+                return {
+                    "session_id": session_id,
+                    "reply": build_weekday_reply(now),
+                    "tool_result": None,
+                    "desktop_tools_enabled": self.enable_desktop_tools,
+                    "client_action": None,
+                }
+
+            # =========================
+            # COMANDOS DIRETOS (PC)
+            # =========================
 
             if any(x in msg for x in ["fecha", "fechar"]) and "janela" in msg:
                 return {
@@ -109,31 +215,31 @@ class AssistantService:
                     }
                 }
 
-            # 🔥 =========================
-            # 🔥 COMANDOS DE MEMÓRIA
-            # 🔥 =========================
+            # =========================
+            # COMANDOS DE MEMÃƒÆ’Ã¢â‚¬Å“RIA
+            # =========================
 
-            if any(x in msg for x in ["memória", "memoria", "lembretes", "preferências", "preferencias"]) and any(y in msg for y in ["mostra", "lista", "ver", "mostrar"]):
+            if any(x in msg for x in ["memÃƒÆ’Ã‚Â³ria", "memoria", "lembretes", "preferÃƒÆ’Ã‚Âªncias", "preferencias"]) and any(y in msg for y in ["mostra", "lista", "ver", "mostrar"]):
                 facts = load_facts()
                 table_format = "tabela" in msg or "table" in msg
 
                 if table_format:
                     # Formato de tabela
-                    reply_lines = ["| ID | Tipo | Conteúdo |", "|----|------|---------|"]
+                    reply_lines = ["| ID | Tipo | ConteÃƒÆ’Ã‚Âºdo |", "|----|------|---------|"]
 
                     if "name" in facts:
                         reply_lines.append(f"| - | Nome | {facts['name']} |")
 
                     preferences = facts.get("preferences", [])
                     for i, pref in enumerate(preferences, 1):
-                        reply_lines.append(f"| {i} | Preferência | {pref} |")
+                        reply_lines.append(f"| {i} | PreferÃƒÆ’Ã‚Âªncia | {pref} |")
 
                     reminders = facts.get("reminders", [])
                     for i, rem in enumerate(reminders, 1):
                         reply_lines.append(f"| {i} | Lembrete | {rem} |")
 
                     if not preferences and not reminders and "name" not in facts:
-                        reply_lines.append("| - | - | Nenhuma informação guardada |")
+                        reply_lines.append("| - | - | Nenhuma informaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o guardada |")
 
                     reply = "\n".join(reply_lines)
                 else:
@@ -145,11 +251,11 @@ class AssistantService:
 
                     preferences = facts.get("preferences", [])
                     if preferences:
-                        response_parts.append("Preferências:")
+                        response_parts.append("PreferÃƒÆ’Ã‚Âªncias:")
                         for i, pref in enumerate(preferences, 1):
                             response_parts.append(f"  {i}. {pref}")
                     else:
-                        response_parts.append("Nenhuma preferência guardada.")
+                        response_parts.append("Nenhuma preferÃƒÆ’Ã‚Âªncia guardada.")
 
                     reminders = facts.get("reminders", [])
                     if reminders:
@@ -169,15 +275,15 @@ class AssistantService:
                     "client_action": None,
                 }
 
-            # Remover preferência
+            # Remover preferÃƒÆ’Ã‚Âªncia
             import re
-            match = re.search(r"remove\s+preferência\s+(\d+)|remover\s+preferencia\s+(\d+)", msg, re.IGNORECASE)
+            match = re.search(r"remove\s+preferÃƒÆ’Ã‚Âªncia\s+(\d+)|remover\s+preferencia\s+(\d+)", msg, re.IGNORECASE)
             if match:
                 index = int(match.group(1) or match.group(2))
                 delete_preference(index)
                 return {
                     "session_id": session_id,
-                    "reply": f"Preferência {index} removida da memória.",
+                    "reply": f"PreferÃƒÆ’Ã‚Âªncia {index} removida da memÃƒÆ’Ã‚Â³ria.",
                     "tool_result": None,
                     "desktop_tools_enabled": self.enable_desktop_tools,
                     "client_action": None,
@@ -190,14 +296,14 @@ class AssistantService:
                 delete_reminder(index)
                 return {
                     "session_id": session_id,
-                    "reply": f"Lembrete {index} removido da memória.",
+                    "reply": f"Lembrete {index} removido da memÃƒÆ’Ã‚Â³ria.",
                     "tool_result": None,
                     "desktop_tools_enabled": self.enable_desktop_tools,
                     "client_action": None,
                 }
 
-            # Limpar toda a memória
-            if any(x in msg for x in ["limpa", "limpar", "esquece", "esquecer"]) and "memória" in msg or "memoria" in msg:
+            # Limpar toda a memÃƒÆ’Ã‚Â³ria
+            if any(x in msg for x in ["limpa", "limpar", "esquece", "esquecer"]) and "memÃƒÆ’Ã‚Â³ria" in msg or "memoria" in msg:
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
                 c.execute("DELETE FROM user_memory")
@@ -205,21 +311,21 @@ class AssistantService:
                 conn.close()
                 return {
                     "session_id": session_id,
-                    "reply": "Toda a memória foi limpa.",
+                    "reply": "Toda a memÃƒÆ’Ã‚Â³ria foi limpa.",
                     "tool_result": None,
                     "desktop_tools_enabled": self.enable_desktop_tools,
                     "client_action": None,
                 }
 
-            # 🔥 =========================
-            # 🔥 COMANDOS DE CLIMA (fallback local rápido)
-            # 🔥 =========================
+            # =========================
+            # COMANDOS DE CLIMA (fallback local rápido)
+            # =========================
 
             if "tempo" in msg:
                 day_offset = parse_day(msg)
                 city = "Lisboa"
 
-                # Verificar preferências para cidade padrão
+                # Verificar preferencias para cidade padrão
                 facts = load_facts()
                 preferences = facts.get("preferences", [])
                 for pref in preferences:
@@ -255,9 +361,9 @@ class AssistantService:
                     "client_action": None,
                 }
 
-            # 🔥 =========================
-            # 🔥 CONTINUA FLUXO NORMAL
-            # 🔥 =========================
+            # =========================
+            # CONTINUA FLUXO NORMAL
+            # =========================
 
             messages.append({"role": "user", "content": user_message})
 
@@ -285,7 +391,7 @@ class AssistantService:
             executed_tool = None
             reply = first_reply
 
-            # 🔧 Converter tool → ação Flutter
+            # ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â§ Converter tool ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o Flutter
             def build_client_action(tool_call: dict):
                 tool_name = tool_call.get("tool_name")
                 args = tool_call.get("arguments", {}) or {}
@@ -326,7 +432,7 @@ class AssistantService:
 
                 return None
 
-            # 🔥 PROCESSAMENTO DE TOOL
+            # PROCESSAMENTO DE TOOL
             if tool_call:
                 try:
                     args = tool_call.get("arguments", {})
@@ -343,7 +449,7 @@ class AssistantService:
                     tool_call["arguments"] = args
                     tool_name = tool_call.get("tool_name")
 
-                    # 👉 ações mobile
+                    # ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ¢â‚¬Â° aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes mobile
                     if tool_name in {"open_website", "open_app", "open_youtube"}:
                         client_action = build_client_action(tool_call)
 
@@ -351,20 +457,20 @@ class AssistantService:
                             executed_tool = {
                                 "tool_name": tool_name,
                                 "ok": True,
-                                "data": "Ação enviada para o cliente.",
+                                "data": "AÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o enviada para o cliente.",
                             }
 
-                            reply = "A executar a ação."
+                            reply = "A executar a aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o."
                         else:
                             executed_tool = {
                                 "tool_name": tool_name,
                                 "ok": False,
-                                "data": "Erro ao converter ação.",
+                                "data": "Erro ao converter aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o.",
                             }
 
                             reply = executed_tool["data"]
 
-                    # 👉 outras tools backend
+                    # ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ¢â‚¬Â° outras tools backend
                     else:
                         executed_tool = execute_tool(
                             tool_name,
@@ -436,7 +542,7 @@ def build_client_action(tool_call: dict) -> dict | None:
 
         return {
             "type": "show_message",
-            "message": f"A app '{app_name}' ainda não está mapeada no telemóvel.",
+            "message": f"A app '{app_name}' ainda nÃƒÆ’Ã‚Â£o estÃƒÆ’Ã‚Â¡ mapeada no telemÃƒÆ’Ã‚Â³vel.",
         }
 
     return None
