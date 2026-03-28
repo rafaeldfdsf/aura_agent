@@ -1,71 +1,50 @@
 """
-Comunicação com o LLM (Ollama).
+Comunicacao com o LLM (Ollama).
 
-Responsabilidade única:
+Responsabilidade unica:
 - Enviar mensagens ao Ollama
 - Receber a resposta do modelo
-
-Este módulo NÃO:
-- controla fluxo da conversa
-- executa tools
-- mantém estado
-
-Ele apenas faz a chamada HTTP ao Ollama.
 """
 
 import requests
-from config import OLLAMA_URL, MODEL
+
+from config import MODEL, OLLAMA_URL
+
+
+class LLMUnavailableError(RuntimeError):
+    """Erro levantado quando o Ollama nao esta acessivel."""
 
 
 def call_llm(messages):
     """
     Envia a conversa ao Ollama e devolve a resposta do modelo.
-
-    :param messages: lista de mensagens no formato OpenAI
-                     exemplo:
-                     [
-                       {"role": "system", "content": "..."},
-                       {"role": "user", "content": "..."}
-                     ]
-
-    :return: texto da resposta do modelo
     """
-
-    # ---------------------------------
-    # Payload enviado ao Ollama
-    # ---------------------------------
     payload = {
-        "model": MODEL,      # modelo configurado (ex: qwen2.5, llama3, mistral)
-        "messages": messages,
-        "stream": False,     # queremos resposta completa (não streaming)
-
-        # opções que controlam o comportamento do modelo
-        "options": {
-            "temperature": 0.7,   # criatividade moderada
-            "top_p": 0.9,         # diversidade de resposta
-        }
+        'model': MODEL,
+        'messages': messages,
+        'stream': False,
+        'options': {
+            'temperature': 0.7,
+            'top_p': 0.9,
+        },
     }
 
-    # ---------------------------------
-    # Fazer pedido HTTP ao Ollama
-    # ---------------------------------
-    r = requests.post(
-        f"{OLLAMA_URL}/api/chat",
-        json=payload,
-        timeout=60
-    )
+    try:
+        response = requests.post(
+            f'{OLLAMA_URL}/api/chat',
+            json=payload,
+            timeout=60,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise LLMUnavailableError(
+            f'Ollama indisponivel em {OLLAMA_URL}. Inicia o servidor Ollama e confirma que o modelo "{MODEL}" esta carregado.'
+        ) from exc
 
-    # se houver erro HTTP lança exceção
-    r.raise_for_status()
-
-    data = r.json()
-
-    # ---------------------------------
-    # Extrair texto da resposta
-    # ---------------------------------
-    reply = data["message"]["content"]
-
-    # remover espaços extras
-    reply = reply.strip()
+    try:
+        data = response.json()
+        reply = data['message']['content'].strip()
+    except (ValueError, KeyError, TypeError) as exc:
+        raise LLMUnavailableError('O Ollama respondeu num formato inesperado.') from exc
 
     return reply
