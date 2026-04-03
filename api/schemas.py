@@ -21,6 +21,12 @@ class ChatResponse(BaseModel):
     client_action: Optional[Dict[str, Any]] = None
 
 
+class VoiceTurnResponse(ChatResponse):
+    transcript: str = ''
+    platform: Optional[str] = None
+    locale: Optional[str] = None
+
+
 class MemoryEntryResponse(BaseModel):
     key: str
     value: str

@@ -1,10 +1,12 @@
+from datetime import datetime
 import json
 import re
+
+from tools.desktop import open_app, open_website, press_keys, type_text
+from tools.registry import LOCAL_AUTOMATION_TOOL_NAMES
+from tools.schemas import tool_result
 from tools.weather import get_weather
 from tools.web_search import search_web
-from tools.desktop import open_website, open_app, type_text, press_keys
-from tools.schemas import tool_result
-from tools.registry import DESKTOP_TOOL_NAMES
 
 
 def extract_tool_call(text: str):
@@ -22,13 +24,11 @@ def extract_tool_call(text: str):
             return data
         return None
 
-    # quick path: exact JSON
     if text.startswith("{") and text.endswith("}"):
         result = parse_json_fragment(text)
         if result:
             return result
 
-    # search any JSON object inside the text
     depth = 0
     in_string = False
     escaped = False
@@ -48,17 +48,17 @@ def extract_tool_call(text: str):
             in_string = True
             continue
 
-        if ch == '{':
+        if ch == "{":
             if depth == 0:
                 start = i
             depth += 1
             continue
 
-        if ch == '}':
+        if ch == "}":
             if depth > 0:
                 depth -= 1
             if depth == 0 and start is not None:
-                candidate = text[start:i+1]
+                candidate = text[start : i + 1]
                 result = parse_json_fragment(candidate)
                 if result:
                     return result
@@ -68,18 +68,17 @@ def extract_tool_call(text: str):
 
 def execute_tool(tool_name: str, arguments: dict, allow_desktop_tools: bool = True):
     try:
-        if tool_name in DESKTOP_TOOL_NAMES and not allow_desktop_tools:
+        if tool_name in LOCAL_AUTOMATION_TOOL_NAMES and not allow_desktop_tools:
             return tool_result(
                 tool_name,
                 False,
-                "Esta tool esta desativada neste modo de execucao."
+                "Esta tool esta desativada neste modo de execucao.",
             )
 
         if tool_name == "get_weather":
             city = arguments.get("city", "Lisboa")
             day_offset = arguments.get("day_offset")
             if day_offset is None:
-                # suporta parâmetro de texto p.ex. "amanhã" -> 1
                 text = arguments.get("text", "")
                 day_offset = parse_day(text)
             try:
@@ -110,26 +109,36 @@ def execute_tool(tool_name: str, arguments: dict, allow_desktop_tools: bool = Tr
 
         return tool_result(tool_name, False, f"Tool desconhecida: {tool_name}")
 
-    except Exception as e:
-        return tool_result(tool_name, False, str(e))
-    
-def parse_day(text):
+    except Exception as exc:
+        return tool_result(tool_name, False, str(exc))
 
+
+WEEKDAY_ALIASES = (
+    (0, ("segunda-feira", "segunda feira", "segunda")),
+    (1, ("terca-feira", "terca feira", "terca")),
+    (2, ("quarta-feira", "quarta feira", "quarta")),
+    (3, ("quinta-feira", "quinta feira", "quinta")),
+    (4, ("sexta-feira", "sexta feira", "sexta")),
+    (5, ("sabado",)),
+    (6, ("domingo",)),
+)
+
+
+def parse_day(text, now: datetime | None = None):
     text = (text or "").lower()
 
-    if "depois de amanhã" in text or "depois de amanha" in text:
+    if "depois de amanha" in text:
         return 2
 
-    if "amanhã" in text or "amanha" in text:
+    if "amanha" in text:
         return 1
 
     if "hoje" in text:
         return 0
 
-    if "sábado" in text or "sabado" in text:
-        return 3
-
-    if "domingo" in text:
-        return 4
+    today = (now or datetime.now().astimezone()).weekday()
+    for weekday, aliases in WEEKDAY_ALIASES:
+        if any(alias in text for alias in aliases):
+            return (weekday - today) % 7
 
     return 0

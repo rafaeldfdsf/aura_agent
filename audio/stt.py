@@ -9,11 +9,13 @@ import webrtcvad
 
 from openai import OpenAI
 from audio.signals import beep
-from config import SAMPLE_RATE
+from config import OPENAI_TIMEOUT_SECONDS, OPENAI_TRANSCRIPTION_MODEL, SAMPLE_RATE
+from logging_utils import get_logger, log_event
 
 
 # cliente OpenAI
-client = OpenAI()
+client = OpenAI(timeout=OPENAI_TIMEOUT_SECONDS)
+logger = get_logger(__name__)
 
 # VAD (detector de fala)
 vad = webrtcvad.Vad(2)
@@ -41,14 +43,15 @@ def transcribe(audio):
         with open(path, "rb") as file:
 
             result = client.audio.transcriptions.create(
-                model="whisper-1",
+                model=OPENAI_TRANSCRIPTION_MODEL,
                 file=file,
                 language="pt"
             )
 
         return result.text.strip()
 
-    except Exception:
+    except Exception as exc:
+        log_event(logger, 40, "stt_failed", error=str(exc))
         return None
 
     finally:
@@ -140,6 +143,7 @@ def listen(_voice_threshold=None):
     if not text:
         return None
 
+    log_event(logger, 20, "stt_transcribed", transcript_length=len(text))
     print(f"Tu: {text}")
 
     return text

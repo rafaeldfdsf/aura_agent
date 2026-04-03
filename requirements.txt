@@ -3,3 +3,13 @@ uvicorn
 requests
 pydantic
 duckduckgo-search
+openai
+python-multipart
+numpy
+sounddevice
+soundfile
+webrtcvad-wheels
+faster-whisper
+silero-vad
+rapidfuzz
+pyautogui

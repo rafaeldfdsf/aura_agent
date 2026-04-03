@@ -43,11 +43,26 @@ TOOLS = [
     }
 ]
 
-DESKTOP_TOOL_NAMES = {
-    "open_website",
-    "open_app",
+LOCAL_AUTOMATION_TOOL_NAMES = {
     "type_text",
     "press_keys",
 }
 
-API_SAFE_TOOLS = [tool for tool in TOOLS if tool["name"] not in DESKTOP_TOOL_NAMES]
+CLIENT_ACTION_TOOL_NAMES = {
+    "open_website",
+    "open_app",
+}
+
+
+def available_tools(enable_local_automation: bool = True) -> list[dict]:
+    if enable_local_automation:
+        return list(TOOLS)
+
+    return [
+        tool
+        for tool in TOOLS
+        if tool["name"] not in LOCAL_AUTOMATION_TOOL_NAMES
+    ]
+
+
+API_SAFE_TOOLS = available_tools(enable_local_automation=False)

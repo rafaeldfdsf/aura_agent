@@ -1,6 +1,5 @@
 import subprocess
 import webbrowser
-import pyautogui
 
 
 KNOWN_APPS = {
@@ -30,11 +29,15 @@ def open_app(app_name: str) -> str:
 
 
 def type_text(text: str) -> str:
+    import pyautogui
+
     pyautogui.write(text, interval=0.02)
     return "Texto escrito."
 
 
 def press_keys(keys: str) -> str:
+    import pyautogui
+
     parts = [k.strip().lower() for k in keys.split("+") if k.strip()]
     pyautogui.hotkey(*parts)
     return f"Teclas premidas: {keys}."

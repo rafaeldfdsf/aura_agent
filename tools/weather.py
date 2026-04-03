@@ -1,6 +1,8 @@
 import random
 import requests
 
+from config import WEATHER_TIMEOUT_SECONDS
+
 CITY_COORDS = {
     "lisboa": (38.72, -9.13),
     "porto": (41.15, -8.61),
@@ -32,7 +34,7 @@ def get_weather(city: str = "Lisboa", day_offset: int = 1) -> str:
         "&timezone=Europe/Lisbon"
     )
 
-    r = requests.get(url, timeout=10)
+    r = requests.get(url, timeout=WEATHER_TIMEOUT_SECONDS)
     r.raise_for_status()
     data = r.json()
 
