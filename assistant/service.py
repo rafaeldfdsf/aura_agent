@@ -240,7 +240,7 @@ class AssistantService:
             user_message = user_message.strip()
             msg = normalize_text(user_message)
 
-            def response_payload(reply: str, tool_result=None, client_action=None):
+            def response_payload(reply: str, tool_call=None, tool_result=None, client_action=None):
                 log_event(
                     logger,
                     20,
@@ -253,6 +253,7 @@ class AssistantService:
                 return {
                     "session_id": session_id,
                     "reply": reply,
+                    "tool_call": tool_call,
                     "tool_result": tool_result,
                     "desktop_tools_enabled": self.enable_desktop_tools,
                     "client_action": client_action,
@@ -391,7 +392,7 @@ class AssistantService:
                 messages.append({"role": "user", "content": user_message})
                 messages.append({"role": "assistant", "content": json.dumps(tool_call, ensure_ascii=False)})
                 messages.append({"role": "tool", "content": json.dumps(executed_tool, ensure_ascii=False)})
-                return response_payload(call_llm(messages), tool_result=executed_tool)
+                return response_payload(call_llm(messages), tool_call=tool_call, tool_result=executed_tool)
 
             messages.append({"role": "user", "content": user_message})
             extract_user_facts(user_message)
@@ -469,4 +470,4 @@ class AssistantService:
             if len(messages) > 1 + MAX_TURNS * 2:
                 messages[:] = messages[:1] + messages[-MAX_TURNS * 2 :]
 
-            return response_payload(reply, tool_result=executed_tool, client_action=client_action)
+            return response_payload(reply, tool_call=tool_call, tool_result=executed_tool, client_action=client_action)

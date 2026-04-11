@@ -16,6 +16,7 @@ class SessionResponse(BaseModel):
 class ChatResponse(BaseModel):
     session_id: str
     reply: str
+    tool_call: Optional[Dict[str, Any]] = None
     tool_result: Optional[Dict[str, Any]] = None
     desktop_tools_enabled: bool
     client_action: Optional[Dict[str, Any]] = None
