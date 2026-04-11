@@ -56,6 +56,10 @@ def _memory_index_from_key(key):
 def _memory_label_from_key(key):
     if key == "name":
         return "Nome"
+    if key == "assistant_name":
+        return "Nome do Assistente"
+    if key == "wake_word_phrase":
+        return "Wake Word"
 
     entry_type = _memory_type_from_key(key)
     index = _memory_index_from_key(key)
@@ -245,7 +249,7 @@ def list_memory_entries():
 
 def update_memory_entry(key, value):
     """
-    Atualiza o valor de uma entrada de memoria.
+    Cria ou atualiza o valor de uma entrada de memoria.
     """
     clean_value = value.strip()
 
@@ -254,14 +258,10 @@ def update_memory_entry(key, value):
 
     conn = _connect()
     c = conn.cursor()
-    c.execute("SELECT key FROM user_memory WHERE key = ?", (key,))
-    row = c.fetchone()
-
-    if row is None:
-        conn.close()
-        raise KeyError(key)
-
-    c.execute("UPDATE user_memory SET value = ? WHERE key = ?", (clean_value, key))
+    c.execute(
+        "INSERT OR REPLACE INTO user_memory (key, value) VALUES (?, ?)",
+        (key, clean_value),
+    )
     conn.commit()
     conn.close()
 

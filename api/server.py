@@ -1,4 +1,4 @@
-﻿import os
+import os
 import tempfile
 from time import perf_counter
 from uuid import uuid4
@@ -34,7 +34,7 @@ assistant = AssistantService(enable_desktop_tools=False)
 router = APIRouter()
 
 app = FastAPI(
-    title='Jarvis Codex API',
+    title='Assistente Codex API',
     version='1.1.0',
     description='API HTTP para ligar o assistente a aplicacoes Windows, Android e iPhone.',
 )

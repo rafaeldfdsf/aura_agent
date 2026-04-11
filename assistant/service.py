@@ -1,4 +1,4 @@
-﻿"""Nucleo reutilizavel do assistente para modo local e modo servidor."""
+"""Nucleo reutilizavel do assistente para modo local e modo servidor."""
 
 from __future__ import annotations
 
@@ -109,6 +109,28 @@ def matches_memory_clear_command(msg: str) -> bool:
     return any(verb in msg for verb in clear_verbs) and any(
         term in msg for term in memory_terms
     )
+
+
+def matches_close_window_command(msg: str) -> bool:
+    explicit_phrases = (
+        "fecha a janela",
+        "fechar a janela",
+        "fecha esta janela",
+        "fechar esta janela",
+        "fecha a janela ativa",
+        "fechar a janela ativa",
+        "fecha a aplicacao",
+        "fechar a aplicacao",
+        "fecha esta aplicacao",
+        "fechar esta aplicacao",
+        "fecha a app",
+        "fechar a app",
+        "fecha esta app",
+        "fechar esta app",
+        "fecha o programa",
+        "fechar o programa",
+    )
+    return any(phrase in msg for phrase in explicit_phrases)
 
 
 def build_client_action(tool_call: dict) -> dict | None:
@@ -254,7 +276,7 @@ class AssistantService:
             if any(x in msg for x in ["que dia da semana", "dia da semana"]):
                 return response_payload(build_weekday_reply(datetime.now().astimezone()))
 
-            if any(x in msg for x in ["fecha", "fechar"]) and "janela" in msg:
+            if matches_close_window_command(msg):
                 return response_payload(
                     "A fechar a janela.",
                     client_action={"type": "pc_action", "action": "close_window"},
