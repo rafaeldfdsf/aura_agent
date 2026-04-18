@@ -1,6 +1,6 @@
 # jarvis_backend
 
-Backend FastAPI do Jarvis. Expõe sessoes de chat, memoria, transcricao, TTS e o fluxo de voz completo.
+Backend FastAPI do Jarvis. ExpÃµe sessoes de chat, memoria, transcricao, TTS e o fluxo de voz completo.
 
 ## Requisitos
 
@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 Variaveis mais importantes:
 
-- `OPENAI_API_KEY`: obrigatoria para transcricao e TTS
+- `OPENAI_API_KEY`: obrigatoria para transcricao, TTS e analise visual do ecra
 - `JARVIS_API_TOKEN`: ativa auth Bearer nas rotas da API
 - `JARVIS_OLLAMA_URL`: URL do Ollama
 - `JARVIS_OLLAMA_MODEL`: modelo usado pelo assistente

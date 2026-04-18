@@ -112,25 +112,43 @@ def matches_memory_clear_command(msg: str) -> bool:
 
 
 def matches_close_window_command(msg: str) -> bool:
-    explicit_phrases = (
-        "fecha a janela",
-        "fechar a janela",
-        "fecha esta janela",
-        "fechar esta janela",
-        "fecha a janela ativa",
-        "fechar a janela ativa",
-        "fecha a aplicacao",
-        "fechar a aplicacao",
-        "fecha esta aplicacao",
-        "fechar esta aplicacao",
-        "fecha a app",
-        "fechar a app",
-        "fecha esta app",
-        "fechar esta app",
-        "fecha o programa",
-        "fechar o programa",
+    return re.fullmatch(
+        r"(?:podes\s+)?(?:fecha|fechar)\s+(?:a\s+)?(?:esta\s+)?janela(?:\s+ativa)?(?:\s+por favor)?",
+        msg,
+    ) is not None
+
+
+def matches_close_tab_command(msg: str) -> bool:
+    return any(token in msg for token in ("fecha", "fechar", "close")) and any(
+        token in msg for token in ("aba", "tab")
     )
-    return any(phrase in msg for phrase in explicit_phrases)
+
+
+def extract_youtube_query(msg: str) -> str | None:
+    if "youtube" not in msg:
+        return None
+
+    if not any(
+        token in msg
+        for token in ("abre", "abrir", "toca", "tocar", "poe", "por", "pesquisa", "procur")
+    ):
+        return None
+
+    match = re.search(
+        r"(?:abre|abrir|toca|tocar|poe|por|pesquisa|procurar)\s+(.+?)\s+(?:no\s+youtube|na\s+youtube|youtube)$",
+        msg,
+    )
+    if not match:
+        return None
+
+    query = match.group(1).strip()
+    query = re.sub(
+        r"^(?:uma|um|a|o)\s+(?:musica|video)\s*(?:dos|das|do|da|de)?\s*",
+        "",
+        query,
+    ).strip()
+    query = re.sub(r"^(?:pesquisa|procura)\s+por\s+", "", query).strip()
+    return query or None
 
 
 def build_client_action(tool_call: dict) -> dict | None:
@@ -139,6 +157,24 @@ def build_client_action(tool_call: dict) -> dict | None:
 
     if not isinstance(args, dict):
         return None
+
+    def cleaned_value(key: str) -> str:
+        value = args.get(key)
+        return value.strip() if isinstance(value, str) else ""
+
+    def build_pc_action(action_name: str, extra: dict | None = None) -> dict:
+        payload = {}
+        for key, value in (extra or {}).items():
+            if isinstance(value, str):
+                value = value.strip()
+            if value not in (None, ""):
+                payload[key] = value
+
+        return {
+            "type": "pc_action",
+            "action": action_name,
+            "arguments": payload,
+        }
 
     if tool_name in {"open_app", "open_youtube"}:
         app_name = (args.get("app_name") or "").strip().lower()
@@ -172,6 +208,126 @@ def build_client_action(tool_call: dict) -> dict | None:
             "type": "open_url",
             "url": url,
         }
+
+    if tool_name == "control_computer":
+        raw_action = cleaned_value("action")
+        normalized_action = normalize_text(raw_action)
+        action_key = normalized_action.replace(" ", "_")
+        action_aliases = {
+            "close_application": "close_app",
+            "close_browser_tab": "close_tab",
+            "close_current_tab": "close_tab",
+            "close_youtube_tab": "close_tab",
+            "search_youtube": "youtube_search",
+            "play_youtube": "youtube_search",
+            "play_music_on_youtube": "youtube_search",
+            "open_music_on_youtube": "youtube_search",
+            "switch_window": "activate_window",
+            "focus_window": "activate_window",
+            "open_website": "open_url",
+        }
+        action_name = action_aliases.get(action_key, action_key)
+
+        target_value = cleaned_value("target")
+        action_args = {
+            "app_name": cleaned_value("app_name"),
+            "window_title": cleaned_value("window_title"),
+            "url": cleaned_value("url"),
+            "query": cleaned_value("query"),
+            "text": cleaned_value("text"),
+            "keys": cleaned_value("keys"),
+        }
+
+        if target_value:
+            if action_name in {"open_app", "close_app"} and not action_args["app_name"]:
+                action_args["app_name"] = target_value
+            elif action_name in {"close_window", "activate_window", "minimize_window"} and not action_args["window_title"]:
+                action_args["window_title"] = target_value
+            elif action_name == "youtube_search" and not action_args["query"]:
+                action_args["query"] = target_value
+            elif action_name == "open_url" and not action_args["url"]:
+                action_args["url"] = target_value
+            elif action_name == "type_text" and not action_args["text"]:
+                action_args["text"] = target_value
+            elif action_name == "press_keys" and not action_args["keys"]:
+                action_args["keys"] = target_value
+
+        inferred_text = normalize_text(
+            " ".join(
+                value
+                for value in [
+                    raw_action,
+                    target_value,
+                    action_args["app_name"],
+                    action_args["window_title"],
+                    action_args["query"],
+                    action_args["text"],
+                ]
+                if value
+            )
+        )
+        if action_name not in {
+            "open_app",
+            "open_url",
+            "close_window",
+            "close_app",
+            "close_tab",
+            "type_text",
+            "press_keys",
+            "youtube_search",
+            "activate_window",
+            "minimize_window",
+        }:
+            if any(token in inferred_text for token in ("aba", "tab")) and any(
+                token in inferred_text for token in ("fecha", "fechar", "close")
+            ):
+                action_name = "close_tab"
+            elif "youtube" in inferred_text and any(
+                token in inferred_text
+                for token in ("musica", "video", "toca", "abre", "pesquisa", "procur")
+            ):
+                action_name = "youtube_search"
+            elif any(token in inferred_text for token in ("app", "aplicacao", "programa")) and any(
+                token in inferred_text for token in ("fecha", "fechar", "close", "encerrar")
+            ):
+                action_name = "close_app"
+            elif any(token in inferred_text for token in ("janela", "window")) and any(
+                token in inferred_text for token in ("fecha", "fechar", "close")
+            ):
+                action_name = "close_window"
+
+        if action_name == "youtube_search" and not action_args["query"]:
+            fallback_query = target_value or action_args["text"] or raw_action
+            fallback_query = re.sub(r"\byoutube\b", "", normalize_text(fallback_query)).strip()
+            fallback_query = re.sub(
+                r"^(?:abre|abrir|toca|tocar|poe|por|pesquisa|procurar)\s+",
+                "",
+                fallback_query,
+            ).strip()
+            fallback_query = re.sub(
+                r"^(?:uma|um|a|o)\s+(?:musica|video)\s*(?:dos|das|do|da|de)?\s*",
+                "",
+                fallback_query,
+            ).strip()
+            if fallback_query:
+                action_args["query"] = fallback_query
+
+        supported_actions = {
+            "open_app",
+            "open_url",
+            "close_window",
+            "close_app",
+            "close_tab",
+            "type_text",
+            "press_keys",
+            "youtube_search",
+            "activate_window",
+            "minimize_window",
+        }
+        if action_name not in supported_actions:
+            return None
+
+        return build_pc_action(action_name, action_args)
 
     return None
 
@@ -281,6 +437,27 @@ class AssistantService:
                 return response_payload(
                     "A fechar a janela.",
                     client_action={"type": "pc_action", "action": "close_window"},
+                )
+
+            if matches_close_tab_command(msg):
+                return response_payload(
+                    "A fechar a aba.",
+                    client_action={
+                        "type": "pc_action",
+                        "action": "close_tab",
+                        "arguments": {},
+                    },
+                )
+
+            youtube_query = extract_youtube_query(msg)
+            if youtube_query:
+                return response_payload(
+                    "A pesquisar no YouTube.",
+                    client_action={
+                        "type": "pc_action",
+                        "action": "youtube_search",
+                        "arguments": {"query": youtube_query},
+                    },
                 )
 
             if "volume" in msg and ("aumenta" in msg or "subir" in msg):
@@ -427,7 +604,7 @@ class AssistantService:
                     tool_call["arguments"] = args
                     tool_name = tool_call.get("tool_name")
 
-                    if tool_name in {"open_website", "open_app", "open_youtube"}:
+                    if tool_name in {"open_website", "open_app", "open_youtube", "control_computer"}:
                         client_action = build_client_action(tool_call)
                         if client_action:
                             executed_tool = {

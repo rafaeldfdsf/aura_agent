@@ -71,8 +71,11 @@ class Settings:
     db_file: Path
     llm_timeout_seconds: float
     weather_timeout_seconds: float
+    desktop_agent_url: str
+    desktop_agent_timeout_seconds: float
     openai_timeout_seconds: float
     openai_transcription_model: str
+    openai_vision_model: str
     openai_tts_model: str
     openai_tts_voice: str
     openai_tts_instructions: str
@@ -92,10 +95,22 @@ settings = Settings(
     db_file=BASE_DIR / _env_str("JARVIS_DB_FILE", "DB_FILE", default="memory.db"),
     llm_timeout_seconds=_env_float("JARVIS_LLM_TIMEOUT_SECONDS", default=60.0),
     weather_timeout_seconds=_env_float("JARVIS_WEATHER_TIMEOUT_SECONDS", default=10.0),
+    desktop_agent_url=_env_str(
+        "JARVIS_DESKTOP_AGENT_URL",
+        default="http://127.0.0.1:5001",
+    ),
+    desktop_agent_timeout_seconds=_env_float(
+        "JARVIS_DESKTOP_AGENT_TIMEOUT_SECONDS",
+        default=2.5,
+    ),
     openai_timeout_seconds=_env_float("JARVIS_OPENAI_TIMEOUT_SECONDS", default=45.0),
     openai_transcription_model=_env_str(
         "JARVIS_OPENAI_STT_MODEL",
         default="whisper-1",
+    ),
+    openai_vision_model=_env_str(
+        "JARVIS_OPENAI_VISION_MODEL",
+        default="gpt-4.1-mini",
     ),
     openai_tts_model=_env_str("JARVIS_OPENAI_TTS_MODEL", default="gpt-4o-mini-tts"),
     openai_tts_voice=_env_str("JARVIS_OPENAI_TTS_VOICE", default="cedar"),
@@ -120,8 +135,11 @@ MAX_TURNS = settings.max_turns
 DB_FILE = str(settings.db_file)
 LLM_TIMEOUT_SECONDS = settings.llm_timeout_seconds
 WEATHER_TIMEOUT_SECONDS = settings.weather_timeout_seconds
+DESKTOP_AGENT_URL = settings.desktop_agent_url
+DESKTOP_AGENT_TIMEOUT_SECONDS = settings.desktop_agent_timeout_seconds
 OPENAI_TIMEOUT_SECONDS = settings.openai_timeout_seconds
 OPENAI_TRANSCRIPTION_MODEL = settings.openai_transcription_model
+OPENAI_VISION_MODEL = settings.openai_vision_model
 OPENAI_TTS_MODEL = settings.openai_tts_model
 OPENAI_TTS_VOICE = settings.openai_tts_voice
 OPENAI_TTS_INSTRUCTIONS = settings.openai_tts_instructions

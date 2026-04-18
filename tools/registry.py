@@ -1,14 +1,14 @@
 TOOLS = [
     {
         "name": "get_weather",
-        "description": "Obtém a previsão do tempo para uma cidade.",
+        "description": "Obtem a previsao do tempo para uma cidade.",
         "parameters": {
             "city": "string"
         }
     },
     {
         "name": "search_web",
-        "description": "Pesquisa informação atual na web.",
+        "description": "Pesquisa informacao atual na web.",
         "parameters": {
             "query": "string"
         }
@@ -22,9 +22,29 @@ TOOLS = [
     },
     {
         "name": "open_app",
-        "description": "Abre uma aplicação local conhecida.",
+        "description": "Abre uma aplicacao local instalada no computador.",
         "parameters": {
             "app_name": "string"
+        }
+    },
+    {
+        "name": "control_computer",
+        "description": "Executa acoes genericas no computador, como fechar uma app, fechar a aba atual, escrever texto, premir atalhos, mudar de janela ou pesquisar no YouTube.",
+        "parameters": {
+            "action": "string",
+            "app_name": "string",
+            "window_title": "string",
+            "url": "string",
+            "query": "string",
+            "text": "string",
+            "keys": "string"
+        }
+    },
+    {
+        "name": "analyze_screen",
+        "description": "Analisa o que esta visivel no ecra atual e responde a uma pergunta sobre isso.",
+        "parameters": {
+            "question": "string"
         }
     },
     {
@@ -36,7 +56,7 @@ TOOLS = [
     },
     {
         "name": "press_keys",
-        "description": "Prime combinações de teclas conhecidas, como ctrl+s.",
+        "description": "Prime combinacoes de teclas conhecidas, como ctrl+s.",
         "parameters": {
             "keys": "string"
         }
@@ -51,6 +71,7 @@ LOCAL_AUTOMATION_TOOL_NAMES = {
 CLIENT_ACTION_TOOL_NAMES = {
     "open_website",
     "open_app",
+    "control_computer",
 }
 
 

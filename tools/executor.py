@@ -2,8 +2,9 @@ from datetime import datetime
 import json
 import re
 
-from tools.desktop import open_app, open_website, press_keys, type_text
+from tools.desktop import control_computer, open_app, open_website, press_keys, type_text
 from tools.registry import LOCAL_AUTOMATION_TOOL_NAMES
+from tools.screen import analyze_screen
 from tools.schemas import tool_result
 from tools.weather import get_weather
 from tools.web_search import search_web
@@ -68,7 +69,7 @@ def extract_tool_call(text: str):
 
 def execute_tool(tool_name: str, arguments: dict, allow_desktop_tools: bool = True):
     try:
-        if tool_name in LOCAL_AUTOMATION_TOOL_NAMES and not allow_desktop_tools:
+        if tool_name in LOCAL_AUTOMATION_TOOL_NAMES.union({'control_computer'}) and not allow_desktop_tools:
             return tool_result(
                 tool_name,
                 False,
@@ -98,6 +99,18 @@ def execute_tool(tool_name: str, arguments: dict, allow_desktop_tools: bool = Tr
         if tool_name == "open_app":
             app_name = arguments.get("app_name", "")
             return tool_result(tool_name, True, open_app(app_name))
+
+        if tool_name == "control_computer":
+            action = arguments.get("action", "")
+            return tool_result(
+                tool_name,
+                True,
+                control_computer(action, arguments=arguments),
+            )
+
+        if tool_name == "analyze_screen":
+            question = arguments.get("question", "")
+            return tool_result(tool_name, True, analyze_screen(question))
 
         if tool_name == "type_text":
             text = arguments.get("text", "")

@@ -9,6 +9,8 @@ class AvailableToolsTests(unittest.TestCase):
 
         self.assertIn("open_app", tool_names)
         self.assertIn("open_website", tool_names)
+        self.assertIn("control_computer", tool_names)
+        self.assertIn("analyze_screen", tool_names)
         self.assertNotIn("type_text", tool_names)
         self.assertNotIn("press_keys", tool_names)
 
